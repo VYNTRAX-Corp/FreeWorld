@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f971994426409ae4ebe8b04951390add, type: 3}
+  m_Name: FreeWorld-URP-RendererData
+  m_Enabled: 1
+  m_PostProcessData: {fileID: 11400000, guid: 41439944d30ece84fb579330c224d7d2, type: 2}
+  m_OpaqueLayerMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  m_TransparentLayerMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  m_DefaultStencilState:
+    passOperation: 0
+    failOperation: 0
+    zFailOperation: 0
+    compareFunction: 8
+  m_ShadowTransparentReceivingEnabled: 1
+  m_RendererFeatures: []
+  m_RendererFeatureMap: []
+  m_UseNativeRenderPass: 0
