@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.AI;
 using System.Collections;
+using FreeWorld.Utilities;
 
 namespace FreeWorld.Enemy
 {
@@ -31,12 +32,6 @@ namespace FreeWorld.Enemy
         [SerializeField] private float chaseSpeed       = 5.5f;
         [SerializeField] private float patrolWaitTime   = 2f;
 
-        // ── Attack ────────────────────────────────────────────────────────────
-        [Header("Attack")]
-        [SerializeField] private float attackDamage     = 10f;
-        [SerializeField] private float attackRate       = 1.5f;   // attacks/sec
-        [SerializeField] private float attackSpread     = 3f;     // accuracy spread degrees
-
         // ── Variant ───────────────────────────────────────────────────────────────
         [Header("Variant")]
         [SerializeField] private EnemyVariant variant   = EnemyVariant.Grunt;
@@ -48,19 +43,20 @@ namespace FreeWorld.Enemy
         [SerializeField] private AudioClip shootSound;
         [SerializeField] private AudioClip deathSound;
 
-        [Header("VFX")]
-        [SerializeField] private ParticleSystem muzzleFlash;
-
         // ── Internal ──────────────────────────────────────────────────────────
         private NavMeshAgent _agent;
         private AudioSource  _audio;
         private Transform    _player;
         private EnemyHealth  _health;
 
-        private EnemyState   _state = EnemyState.Idle;
-        private int          _patrolIndex;
-        private float        _attackTimer;
-        private bool         _playerVisible;
+        private EnemyState           _state = EnemyState.Idle;
+        private int                   _patrolIndex;
+        private bool                  _playerVisible;
+        private EnemyBodyParts        _bodyParts;
+        private EnemyShootingModule   _shootModule;
+
+        /// <summary>Read by EnemyProceduralAnimator to select the right animation.</summary>
+        public EnemyState CurrentState => _state;
 
         // ─────────────────────────────────────────────────────────────────────
         private void Awake()
@@ -72,6 +68,19 @@ namespace FreeWorld.Enemy
             // Cache player transform — assumes single player (extend for multiplayer)
             GameObject playerObj = GameObject.FindGameObjectWithTag("Player");
             if (playerObj != null) _player = playerObj.transform;
+
+            // Build procedural humanoid body (before ApplyVariant so color can be set)
+            _bodyParts = EnemyHumanoidBuilder.Build(transform, new Color(0.15f, 0.28f, 0.12f));
+            GetComponent<EnemyProceduralAnimator>()?.Init(_bodyParts);
+
+            // Build gun and wire shooting module
+            var gunVis   = EnemyGunBuilder.Build(_bodyParts.RightForeArm);
+            _shootModule = GetComponent<EnemyShootingModule>();
+            if (_shootModule != null)
+            {
+                _shootModule.Init(gunVis?.MuzzlePoint);
+                _shootModule.ShootAudioClip = shootSound;
+            }
 
             // Apply variant stats (uses Inspector value by default; overridden by SetVariant())
             ApplyVariant(variant);
@@ -89,23 +98,25 @@ namespace FreeWorld.Enemy
             switch (v)
             {
                 case EnemyVariant.Heavy:
-                    chaseSpeed   = 3.0f;
-                    attackDamage = 28f;
-                    attackRate   = 0.8f;
+                    chaseSpeed = 3.0f;
                     _health?.Configure(280f, 250, "HEAVY");
                     SetRendererColor(new Color(0.18f, 0.28f, 0.85f));  // blue
+                    // 3-round burst, hard-hitting, wide spread, short range
+                    _shootModule?.Configure(28f, 0.7f, 8f, 3, 12, 3.0f, 10f);
                     break;
 
                 case EnemyVariant.Scout:
-                    chaseSpeed   = 9.5f;
-                    attackDamage = 7f;
-                    attackRate   = 2.5f;
-                    sightRange   = 32f;
+                    chaseSpeed = 9.5f;
+                    sightRange = 32f;
                     _health?.Configure(55f, 150, "SCOUT");
                     SetRendererColor(new Color(0.85f, 0.80f, 0.08f));  // yellow
+                    // Fast semi-auto, precise, long range
+                    _shootModule?.Configure(7f, 3.0f, 2f, 1, 30, 1.8f, 22f);
                     break;
 
-                default: // Grunt — default inspector values, pink capsule
+                default: // Grunt — standard battle rifle
+                    SetRendererColor(new Color(0.15f, 0.28f, 0.12f));
+                    _shootModule?.Configure(10f, 1.2f, 4f, 1, 20, 2.2f, 14f);
                     break;
             }
             if (_agent != null) _agent.speed = chaseSpeed;
@@ -113,10 +124,7 @@ namespace FreeWorld.Enemy
 
         private void SetRendererColor(Color c)
         {
-            var rend = GetComponentInChildren<Renderer>();
-            if (rend == null) return;
-            // Create a new material instance so we don't affect the shared asset
-            rend.material = new Material(rend.material) { color = c };
+            EnemyHumanoidBuilder.SetClothingColor(_bodyParts, c);
         }
 
         private void Update()
@@ -124,7 +132,6 @@ namespace FreeWorld.Enemy
             if (_state == EnemyState.Dead) return;
 
             _playerVisible = CanSeePlayer();
-            _attackTimer  += Time.deltaTime;
 
             switch (_state)
             {
@@ -185,34 +192,7 @@ namespace FreeWorld.Enemy
             transform.rotation = Quaternion.Slerp(
                 transform.rotation, Quaternion.LookRotation(dir), 8f * Time.deltaTime);
 
-            if (_attackTimer >= 1f / attackRate)
-            {
-                _attackTimer = 0f;
-                ShootAtPlayer();
-            }
-        }
-
-        // ── Shooting ──────────────────────────────────────────────────────────
-        private void ShootAtPlayer()
-        {
-            if (muzzleFlash != null) muzzleFlash.Play();
-            PlaySound(shootSound);
-
-            // Apply accuracy spread
-            Vector3 spread = new Vector3(
-                UnityEngine.Random.Range(-attackSpread, attackSpread),
-                UnityEngine.Random.Range(-attackSpread, attackSpread),
-                0f);
-
-            Vector3 dir = Quaternion.Euler(spread) *
-                          (_player.position + Vector3.up * 1f - transform.position).normalized;
-
-            Ray ray = new Ray(transform.position + Vector3.up * 1.5f, dir);
-            if (Physics.Raycast(ray, out RaycastHit hit, attackRange * 1.5f))
-            {
-                IDamageable dmg = hit.collider.GetComponentInParent<IDamageable>();
-                dmg?.TakeDamage(attackDamage, hit.point, dir);
-            }
+            _shootModule?.TryShoot(_player);
         }
 
         // ── Sight check ───────────────────────────────────────────────────────

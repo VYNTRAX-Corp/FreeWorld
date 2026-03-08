@@ -1,1 +1,21 @@
 Day 2 - Dynamic crossshair, main menu, loading indication, basic surface textures, jump, pause menu. 
+
+
+Day 3 of building my own FPS game from scratch 🎮
+
+Fixed some nasty bugs today — enemies weren't respawning, 
+the timer was frozen, kill counter stuck at 0...
+
+Turns out ONE component sharing a GameObject with another 
+was silently destroying the entire game manager every session 💀
+
+Sometimes the hardest bugs have the simplest causes
+
+→ Timer now counts down ✅
+→ Enemies spawn in waves ✅  
+→ Kill counter tracks your score ✅
+→ HUD styled like a real FPS ✅
+
+Built with Unity + GitHub Copilot 🤖
+
+#gamedev #unity3d #fps #indiegame #coding #buildinpublic #gamedevelopment #unitydeveloper #csharp #devlog

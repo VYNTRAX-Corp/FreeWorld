@@ -835,14 +835,6 @@ namespace FreeWorld.Editor
                 AssetDatabase.CreateAsset(mat, "Assets/Materials/EnemyMaterial.asset");
             }
 
-            // Head for headshot detection
-            GameObject head = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            head.name = "Head";
-            head.tag  = "Head";
-            head.transform.SetParent(enemy.transform, false);
-            head.transform.localPosition = new Vector3(0f, 0.8f, 0f);
-            head.transform.localScale    = new Vector3(0.6f, 0.6f, 0.6f);
-
             // NavMeshAgent (requires AI Navigation package)
             var agentType = System.Type.GetType(
                 "UnityEngine.AI.NavMeshAgent, UnityEngine.AIModule");
@@ -851,6 +843,8 @@ namespace FreeWorld.Editor
 
             enemy.AddComponent<EnemyHealth>();
             enemy.AddComponent<EnemyAI>();
+            enemy.AddComponent<EnemyProceduralAnimator>();
+            enemy.AddComponent<EnemyShootingModule>();
             enemy.AddComponent<AudioSource>();
 
             return enemy;
