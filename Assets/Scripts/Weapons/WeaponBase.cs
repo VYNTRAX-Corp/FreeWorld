@@ -1,5 +1,6 @@
 using System;
 using FreeWorld.Managers;
+using FreeWorld.Utilities;
 using UnityEngine;
 
 namespace FreeWorld.Weapons
@@ -180,10 +181,13 @@ namespace FreeWorld.Weapons
         protected virtual void PerformRaycast()
         {
             Ray ray = new Ray(fpsCam.transform.position, fpsCam.transform.forward);
+            // Tracer starts slightly in front of the camera to avoid spawning inside walls
+            Vector3 tracerOrigin = fpsCam.transform.position + fpsCam.transform.forward * 0.8f;
 
             if (Physics.Raycast(ray, out RaycastHit hit, range))
             {
                 SpawnImpactEffect(hit);
+                VFXManager.BulletTracer(tracerOrigin, hit.point);
 
                 IDamageable target = hit.collider.GetComponentInParent<IDamageable>();
                 if (target != null && target.IsAlive)
@@ -193,6 +197,12 @@ namespace FreeWorld.Weapons
                     target.TakeDamage(dmg, hit.point, ray.direction);
                     UIManager.Instance?.ShowHitMarker();
                 }
+            }
+            else
+            {
+                // Missed shot — tracer extends to max range
+                VFXManager.BulletTracer(tracerOrigin,
+                    tracerOrigin + fpsCam.transform.forward * (range - 0.8f));
             }
         }
 
@@ -219,15 +229,32 @@ namespace FreeWorld.Weapons
         // ── Helpers ───────────────────────────────────────────────────────────
         private void PlayMuzzleFlash()
         {
+            Vector3 muzzlePos = muzzleFlash != null
+                ? muzzleFlash.transform.position
+                : fpsCam.transform.position + fpsCam.transform.forward * 0.6f;
+
             if (muzzleFlash != null) muzzleFlash.Play();
+            VFXManager.MuzzleFlashLight(muzzlePos);
         }
 
         private void SpawnImpactEffect(RaycastHit hit)
         {
-            if (bulletImpactPrefab == null) return;
-            GameObject impact = Instantiate(bulletImpactPrefab, hit.point,
-                                            Quaternion.LookRotation(hit.normal));
-            Destroy(impact, 2f);
+            bool isFlesh = hit.collider.CompareTag("Enemy") || hit.collider.CompareTag("Head");
+            if (isFlesh)
+                VFXManager.BloodHit(hit.point, hit.normal);
+            else
+            {
+                VFXManager.BulletSpark(hit.point, hit.normal);
+                VFXManager.BulletHole(hit.point, hit.normal, hit.transform);
+            }
+
+            // Legacy prefab support (still works if assigned in Inspector)
+            if (bulletImpactPrefab != null)
+            {
+                GameObject impact = Instantiate(bulletImpactPrefab, hit.point,
+                                                Quaternion.LookRotation(hit.normal));
+                Destroy(impact, 2f);
+            }
         }
 
         protected void PlaySound(AudioClip clip)

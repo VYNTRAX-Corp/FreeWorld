@@ -25,6 +25,7 @@ namespace FreeWorld.Enemy
         [Header("Hit Feedback")]
         [SerializeField] private GameObject bloodSplatterPrefab;
         public event Action OnDeathEvent;
+        public event Action OnDamaged;    // fires on every successful hit (used by EnemyAI for cover reaction)
 
         // ── IDamageable ───────────────────────────────────────────────────────
         public float CurrentHealth { get; private set; }
@@ -52,6 +53,7 @@ namespace FreeWorld.Enemy
         {
             if (!IsAlive) return;
 
+            OnDamaged?.Invoke();
             CurrentHealth -= amount;
 
             // Floating damage number at the hit point

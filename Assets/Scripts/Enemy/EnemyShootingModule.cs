@@ -1,5 +1,6 @@
 using UnityEngine;
 using System.Collections;
+using FreeWorld.Utilities;
 
 namespace FreeWorld.Enemy
 {
@@ -152,10 +153,19 @@ namespace FreeWorld.Enemy
                 float dmg        = DamagePerShot * (headshot ? HeadshotMult : 1f);
                 var   damageable = hit.collider.GetComponentInParent<IDamageable>();
                 damageable?.TakeDamage(dmg, hit.point, dir);
-                SpawnImpact(hit.point, hit.normal);
+
+                bool isFlesh = hit.collider.CompareTag("Player") || headshot;
+                if (isFlesh)
+                    VFXManager.BloodHit(hit.point, hit.normal);
+                else
+                {
+                    VFXManager.BulletSpark(hit.point, hit.normal);
+                    VFXManager.BulletHole(hit.point, hit.normal, hit.transform);
+                }
+                VFXManager.BulletTracer(origin, hit.point);
             }
 
-            SpawnMuzzleFlash(origin, dir);
+            VFXManager.MuzzleFlashLight(origin);
             PlayGunshot();
 
             if (BurstCount <= 1) IsFiring = false;
@@ -168,43 +178,6 @@ namespace FreeWorld.Enemy
             yield return new WaitForSeconds(ReloadTime);
             AmmoInMag   = MagSize;
             IsReloading = false;
-        }
-
-        // ── VFX ───────────────────────────────────────────────────────────────
-        private void SpawnMuzzleFlash(Vector3 pos, Vector3 dir)
-        {
-            var flash = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            flash.name = "MuzzleFlash";
-            flash.transform.position   = pos + dir * 0.06f;
-            flash.transform.localScale = Vector3.one * 0.09f;
-
-            var col = flash.GetComponent<Collider>();
-            if (col != null) Destroy(col);
-
-            var mat = new Material(Shader.Find("Universal Render Pipeline/Lit") ??
-                                   Shader.Find("Standard"));
-            mat.color = new Color(1f, 0.88f, 0.30f);
-            mat.EnableKeyword("_EMISSION");
-            mat.SetColor("_EmissionColor", new Color(4f, 2.5f, 0.6f));
-            flash.GetComponent<Renderer>().material = mat;
-            Destroy(flash, 0.05f);
-        }
-
-        private void SpawnImpact(Vector3 pos, Vector3 normal)
-        {
-            var spark = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            spark.name = "ImpactSpark";
-            spark.transform.position   = pos + normal * 0.02f;
-            spark.transform.localScale = Vector3.one * 0.045f;
-
-            var col = spark.GetComponent<Collider>();
-            if (col != null) Destroy(col);
-
-            var mat = new Material(Shader.Find("Universal Render Pipeline/Lit") ??
-                                   Shader.Find("Standard"));
-            mat.color = new Color(1f, 0.55f, 0.05f);
-            spark.GetComponent<Renderer>().material = mat;
-            Destroy(spark, 0.07f);
         }
 
         private void PlayGunshot()

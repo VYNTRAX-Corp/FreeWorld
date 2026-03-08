@@ -3,18 +3,69 @@ Day 2 - Dynamic crossshair, main menu, loading indication, basic surface texture
 
 Day 3 of building my own FPS game from scratch 🎮
 
-Fixed some nasty bugs today — enemies weren't respawning, 
-the timer was frozen, kill counter stuck at 0...
+The game finally looks like a GAME 🔥
 
-Turns out ONE component sharing a GameObject with another 
+Two things today — visual effects and enemy AI that actually fights back
+
+VFX pass:
+Every bullet now leaves a tracer in the air ✨
+Hit an enemy? Blood splatter 🩸
+Hit a wall? Sparks fly + bullet hole stays on the surface
+Muzzle flash = real point light burst, not a fake sprite
+Post-processing turned on — Bloom, Vignette, Chromatic Aberration
+The game went from "Unity default grey" to actually cinematic
+
+Enemy AI:
+Before today enemies just walked at you and stood still shooting 🤦
+Now they:
+→ Strafe sideways while firing (hard to hit) ✅
+→ Flank you from the side ✅
+→ Investigate your last position if you hide ✅
+→ Dive for cover when you shoot them ✅
+→ Learn from you — the faster you kill, the smarter they get ✅
+
+That last one — the adaptive difficulty — is wild to watch.
+Clear the first wave fast and by wave 3 they're a different enemy.
+No ML, no neural nets, just a rolling kill-speed tracker.
+Kill fast = they react faster, flank more, chase harder.
+Die = they ease off so it stays fun.
+
+Built with Unity + GitHub Copilot 🤖
+
+#gamedev #unity3d #fps #indiegame #coding #buildinpublic #gamedevelopment #unitydeveloper #csharp #devlog #gameai
+
+
+Day 2 part 2 of building my own FPS game from scratch 🎮
+
+Enemies finally look like actual soldiers 🪖
+
+Built a full procedural humanoid from scratch — head, torso,
+arms, legs, hands, boots — no assets, pure code 👀
+
+Then gave them real guns.
+Not just "shoot a raycast" — a full shooting system:
+burst fire, magazine, reload animations, headshot multiplier,
+muzzle flash, impact sparks...
+
+But then I had to fix some nasty bugs to make them actually work —
+enemies weren't respawning, the timer was frozen, kill counter stuck at 0...
+
+Turns out ONE component sharing a GameObject with another
 was silently destroying the entire game manager every session 💀
 
 Sometimes the hardest bugs have the simplest causes
 
+→ Jointed humanoid body built from primitives ✅
+→ Rifle parented to the right forearm ✅
+→ Arms raise into aiming pose when attacking ✅
+→ Reload animation drops the arm to change mag ✅
+→ Headshots deal 2× damage ✅
 → Timer now counts down ✅
-→ Enemies spawn in waves ✅  
+→ Enemies spawn in waves ✅
 → Kill counter tracks your score ✅
 → HUD styled like a real FPS ✅
+
+The enemies went from pink balloons to actual armed soldiers 🔫
 
 Built with Unity + GitHub Copilot 🤖
 

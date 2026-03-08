@@ -146,6 +146,7 @@ namespace FreeWorld.Managers
             OnScoreChanged?.Invoke(Score);
             OnEnemyKilled?.Invoke(typeName, scoreValue);
             OnEnemiesChanged?.Invoke(EnemiesRemaining);
+            FreeWorld.Enemy.EnemyAdaptiveSystem.Instance?.NotifyPlayerKill();
 
             CheckWaveComplete();
         }

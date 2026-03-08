@@ -949,6 +949,11 @@ namespace FreeWorld.Editor
             GameObject smObj = new GameObject("SettingsManager");
             smObj.transform.SetParent(managers.transform);
             smObj.AddComponent<SettingsManager>();
+
+            // EnemyAdaptiveSystem — adjusts enemy difficulty based on player performance
+            GameObject adaptObj = new GameObject("EnemyAdaptiveSystem");
+            adaptObj.transform.SetParent(managers.transform);
+            adaptObj.AddComponent<EnemyAdaptiveSystem>();
             // ── UICanvas ──────────────────────────────────────────────────────
             GameObject uiCanvas = new GameObject("UICanvas");
             uiCanvas.transform.SetParent(managers.transform);
@@ -1404,6 +1409,8 @@ namespace FreeWorld.Editor
                 var isGlobalProp = volumeType.GetProperty("isGlobal");
                 if (isGlobalProp != null) isGlobalProp.SetValue(v, true);
             }
+            // GraphicsConfigurator sets up Bloom, Color Grading, Vignette and CA at runtime
+            vol.AddComponent<GraphicsConfigurator>();
         }
 
         // ── Utility helpers ───────────────────────────────────────────────────

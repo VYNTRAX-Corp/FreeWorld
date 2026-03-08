@@ -5,7 +5,7 @@ using FreeWorld.Utilities;
 
 namespace FreeWorld.Enemy
 {
-    public enum EnemyState   { Idle, Patrol, Chase, Attack, TakingCover, Dead }
+    public enum EnemyState   { Idle, Patrol, Chase, Attack, TakingCover, Investigate, Flank, Dead }
     public enum EnemyVariant  { Grunt, Heavy, Scout }
 
     /// <summary>
@@ -55,6 +55,15 @@ namespace FreeWorld.Enemy
         private EnemyBodyParts        _bodyParts;
         private EnemyShootingModule   _shootModule;
 
+        // ── Adaptive behaviour state ───────────────────────────────────────────
+        private Vector3 _lastKnownPlayerPos;
+        private float   _strafeDir    = 1f;   // +1 right, -1 left
+        private float   _strafeTimer;
+        private float   _flankTimer;
+        private float   _searchTimer;
+        private float   _reactionTimer;   // delay before first shot on entering Attack
+        private float   _coverTimer;
+
         /// <summary>Read by EnemyProceduralAnimator to select the right animation.</summary>
         public EnemyState CurrentState => _state;
 
@@ -82,8 +91,16 @@ namespace FreeWorld.Enemy
                 _shootModule.ShootAudioClip = shootSound;
             }
 
+            if (_health != null)
+                _health.OnDamaged += OnTookDamage;
+
             // Apply variant stats (uses Inspector value by default; overridden by SetVariant())
             ApplyVariant(variant);
+        }
+
+        private void OnDestroy()
+        {
+            if (_health != null) _health.OnDamaged -= OnTookDamage;
         }
 
         /// <summary>Called by EnemySpawner to override the default Grunt stats.</summary>
@@ -132,13 +149,18 @@ namespace FreeWorld.Enemy
             if (_state == EnemyState.Dead) return;
 
             _playerVisible = CanSeePlayer();
+            if (_playerVisible && _player != null)
+                _lastKnownPlayerPos = _player.position;
 
             switch (_state)
             {
-                case EnemyState.Idle:    UpdateIdle();    break;
-                case EnemyState.Patrol:  UpdatePatrol();  break;
-                case EnemyState.Chase:   UpdateChase();   break;
-                case EnemyState.Attack:  UpdateAttack();  break;
+                case EnemyState.Idle:        UpdateIdle();        break;
+                case EnemyState.Patrol:      UpdatePatrol();      break;
+                case EnemyState.Chase:       UpdateChase();       break;
+                case EnemyState.Attack:      UpdateAttack();      break;
+                case EnemyState.Investigate: UpdateInvestigate(); break;
+                case EnemyState.Flank:       UpdateFlank();       break;
+                case EnemyState.TakingCover: UpdateTakingCover(); break;
             }
         }
 
@@ -161,25 +183,40 @@ namespace FreeWorld.Enemy
 
         private void UpdateChase()
         {
-            if (!_playerVisible && _state == EnemyState.Chase)
+            if (!_playerVisible)
             {
-                // Lost sight — search at last known position a bit then give up
-                // (basic: just go back to patrol)
-                TransitionTo(EnemyState.Patrol);
+                TransitionTo(EnemyState.Investigate);
                 return;
             }
 
             float dist = Vector3.Distance(transform.position, _player.position);
             if (dist <= attackRange)
+            {
                 TransitionTo(EnemyState.Attack);
-            else
-                _agent.SetDestination(_player.position);
+                return;
+            }
+
+            // Periodically try to flank based on adaptive difficulty
+            _flankTimer -= Time.deltaTime;
+            if (_flankTimer <= 0f)
+            {
+                _strafeDir = Random.value > 0.5f ? 1f : -1f;
+                TransitionTo(EnemyState.Flank);
+                return;
+            }
+
+            _agent.SetDestination(_player.position);
         }
 
         private void UpdateAttack()
         {
-            float dist = Vector3.Distance(transform.position, _player.position);
+            if (!_playerVisible)
+            {
+                TransitionTo(EnemyState.Investigate);
+                return;
+            }
 
+            float dist = Vector3.Distance(transform.position, _player.position);
             if (dist > attackRange * 1.3f)
             {
                 TransitionTo(EnemyState.Chase);
@@ -192,7 +229,19 @@ namespace FreeWorld.Enemy
             transform.rotation = Quaternion.Slerp(
                 transform.rotation, Quaternion.LookRotation(dir), 8f * Time.deltaTime);
 
-            _shootModule?.TryShoot(_player);
+            // Strafe sideways — changes direction every 1-2.5 s, makes enemy hard to hit
+            _strafeTimer -= Time.deltaTime;
+            if (_strafeTimer <= 0f)
+            {
+                _strafeDir   = Random.value > 0.5f ? 1f : -1f;
+                _strafeTimer = Random.Range(1.0f, 2.5f);
+            }
+            _agent.Move(transform.right * (_strafeDir * 2.0f * Time.deltaTime));
+
+            // Reaction delay before opening fire (shorter as difficulty rises)
+            _reactionTimer -= Time.deltaTime;
+            if (_reactionTimer <= 0f)
+                _shootModule?.TryShoot(_player);
         }
 
         // ── Sight check ───────────────────────────────────────────────────────
@@ -223,6 +272,7 @@ namespace FreeWorld.Enemy
             _state = newState;
 
             _agent.isStopped = false;
+            var adapt = EnemyAdaptiveSystem.Instance;
             switch (newState)
             {
                 case EnemyState.Patrol:
@@ -230,11 +280,28 @@ namespace FreeWorld.Enemy
                     SetNextPatrolPoint();
                     break;
                 case EnemyState.Chase:
-                    _agent.speed = chaseSpeed;
+                    _agent.speed = chaseSpeed * (adapt?.ChaseSpeedMult ?? 1f);
+                    _flankTimer  = adapt?.FlankInterval ?? 12f;
                     PlaySound(alertSound);
                     break;
                 case EnemyState.Attack:
                     _agent.isStopped = true;
+                    _strafeTimer     = Random.Range(0.4f, 1.2f);
+                    _reactionTimer   = adapt?.ReactionDelay ?? 0.5f;
+                    break;
+                case EnemyState.Investigate:
+                    _agent.speed = chaseSpeed * 0.75f;
+                    _searchTimer = 3.0f;
+                    _agent.SetDestination(_lastKnownPlayerPos);
+                    break;
+                case EnemyState.Flank:
+                    _agent.speed = chaseSpeed * (adapt?.ChaseSpeedMult ?? 1f);
+                    _agent.SetDestination(ComputeFlankPosition());
+                    break;
+                case EnemyState.TakingCover:
+                    _agent.speed = chaseSpeed * 1.2f;
+                    _coverTimer  = Random.Range(2.0f, 4.0f);
+                    SeekCover();
                     break;
             }
         }
@@ -268,7 +335,71 @@ namespace FreeWorld.Enemy
             if (clip != null && _audio != null)
                 _audio.PlayOneShot(clip);
         }
+        // ── New behaviour states ─────────────────────────────────────────────────────
+        private void UpdateInvestigate()
+        {
+            // Regain sight? Return to chase immediately
+            if (_playerVisible) { TransitionTo(EnemyState.Chase); return; }
 
+            // Still en route to last known position
+            if (_agent.pathPending || _agent.remainingDistance >= 1.0f) return;
+
+            // Arrived — look around for a few seconds before giving up
+            _searchTimer -= Time.deltaTime;
+            if (_searchTimer <= 0f)
+                TransitionTo(patrolPoints.Length > 0 ? EnemyState.Patrol : EnemyState.Idle);
+        }
+
+        private void UpdateFlank()
+        {
+            if (_playerVisible &&
+                Vector3.Distance(transform.position, _player.position) <= attackRange)
+            {
+                TransitionTo(EnemyState.Attack);
+                return;
+            }
+            if (!_agent.pathPending && _agent.remainingDistance < 1.2f)
+                TransitionTo(EnemyState.Chase);
+        }
+
+        private void UpdateTakingCover()
+        {
+            if (_agent.pathPending || _agent.remainingDistance >= 0.8f) return;
+
+            _coverTimer -= Time.deltaTime;
+            if (_coverTimer <= 0f)
+                TransitionTo(_playerVisible ? EnemyState.Attack : EnemyState.Chase);
+        }
+
+        private Vector3 ComputeFlankPosition()
+        {
+            if (_player == null) return transform.position;
+            // Step to the player's side, slightly behind their facing
+            Vector3 side      = (_strafeDir >= 0 ? _player.right : -_player.right);
+            Vector3 candidate = _player.position + (side + _player.forward * 0.25f).normalized
+                                                  * (attackRange * 0.8f);
+            if (NavMesh.SamplePosition(candidate, out NavMeshHit hit, 5f, NavMesh.AllAreas))
+                return hit.position;
+            return _player.position - _player.forward * 3f;  // fallback: directly behind
+        }
+
+        private void SeekCover()
+        {
+            if (_player == null) return;
+            Vector3 away  = (transform.position - _player.position).normalized;
+            Vector3 spot  = transform.position + away * Random.Range(4f, 8f)
+                            + new Vector3(Random.Range(-3f, 3f), 0f, Random.Range(-3f, 3f));
+            if (NavMesh.SamplePosition(spot, out NavMeshHit hit, 6f, NavMesh.AllAreas))
+                _agent.SetDestination(hit.position);
+        }
+
+        private void OnTookDamage()
+        {
+            if (_state == EnemyState.Dead || _state == EnemyState.TakingCover) return;
+            // 35 % chance to break and dive for cover when hit
+            if (Random.value < 0.35f)
+                TransitionTo(EnemyState.TakingCover);
+        }
         // ── Gizmos ────────────────────────────────────────────────────────────
         private void OnDrawGizmosSelected()
         {
