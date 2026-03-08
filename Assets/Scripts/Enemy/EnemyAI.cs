@@ -4,7 +4,8 @@ using System.Collections;
 
 namespace FreeWorld.Enemy
 {
-    public enum EnemyState { Idle, Patrol, Chase, Attack, TakingCover, Dead }
+    public enum EnemyState   { Idle, Patrol, Chase, Attack, TakingCover, Dead }
+    public enum EnemyVariant  { Grunt, Heavy, Scout }
 
     /// <summary>
     /// Basic FPS enemy AI using Unity NavMesh.
@@ -36,8 +37,9 @@ namespace FreeWorld.Enemy
         [SerializeField] private float attackRate       = 1.5f;   // attacks/sec
         [SerializeField] private float attackSpread     = 3f;     // accuracy spread degrees
 
-        // ── Patrol ────────────────────────────────────────────────────────────
-        [Header("Patrol")]
+        // ── Variant ───────────────────────────────────────────────────────────────
+        [Header("Variant")]
+        [SerializeField] private EnemyVariant variant   = EnemyVariant.Grunt;
         [SerializeField] private Transform[] patrolPoints;
 
         // ── Audio & VFX ───────────────────────────────────────────────────────
@@ -70,6 +72,51 @@ namespace FreeWorld.Enemy
             // Cache player transform — assumes single player (extend for multiplayer)
             GameObject playerObj = GameObject.FindGameObjectWithTag("Player");
             if (playerObj != null) _player = playerObj.transform;
+
+            // Apply variant stats (uses Inspector value by default; overridden by SetVariant())
+            ApplyVariant(variant);
+        }
+
+        /// <summary>Called by EnemySpawner to override the default Grunt stats.</summary>
+        public void SetVariant(EnemyVariant v)
+        {
+            variant = v;
+            ApplyVariant(v);
+        }
+
+        private void ApplyVariant(EnemyVariant v)
+        {
+            switch (v)
+            {
+                case EnemyVariant.Heavy:
+                    chaseSpeed   = 3.0f;
+                    attackDamage = 28f;
+                    attackRate   = 0.8f;
+                    _health?.Configure(280f, 250, "HEAVY");
+                    SetRendererColor(new Color(0.18f, 0.28f, 0.85f));  // blue
+                    break;
+
+                case EnemyVariant.Scout:
+                    chaseSpeed   = 9.5f;
+                    attackDamage = 7f;
+                    attackRate   = 2.5f;
+                    sightRange   = 32f;
+                    _health?.Configure(55f, 150, "SCOUT");
+                    SetRendererColor(new Color(0.85f, 0.80f, 0.08f));  // yellow
+                    break;
+
+                default: // Grunt — default inspector values, pink capsule
+                    break;
+            }
+            if (_agent != null) _agent.speed = chaseSpeed;
+        }
+
+        private void SetRendererColor(Color c)
+        {
+            var rend = GetComponentInChildren<Renderer>();
+            if (rend == null) return;
+            // Create a new material instance so we don't affect the shared asset
+            rend.material = new Material(rend.material) { color = c };
         }
 
         private void Update()

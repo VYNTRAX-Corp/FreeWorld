@@ -949,7 +949,12 @@ namespace FreeWorld.Editor
             // ── GameManager ───────────────────────────────────────────────────
             GameObject gmObj = new GameObject("GameManager");
             gmObj.transform.SetParent(managers.transform);
-            gmObj.AddComponent<GameManager>();            gmObj.AddComponent<SettingsManager>();
+            gmObj.AddComponent<GameManager>();
+
+            // SettingsManager on its OWN child so its DontDestroyOnLoad never kills GameManager
+            GameObject smObj = new GameObject("SettingsManager");
+            smObj.transform.SetParent(managers.transform);
+            smObj.AddComponent<SettingsManager>();
             // ── UICanvas ──────────────────────────────────────────────────────
             GameObject uiCanvas = new GameObject("UICanvas");
             uiCanvas.transform.SetParent(managers.transform);
@@ -974,51 +979,88 @@ namespace FreeWorld.Editor
             uiSO.FindProperty("damageFlash").objectReferenceValue = flashImg;
 
             // Health bar — bottom-left
-            var healthBar = UI_Slider(cv, "HealthBar", new Color(0.18f, 0.80f, 0.18f),
-                new Vector2(0f, 0f), new Vector2(20f, 60f), new Vector2(260f, 22f));
+            var healthBar = UI_Slider(cv, "HealthBar", new Color(0.15f, 0.85f, 0.15f),
+                new Vector2(0f, 0f), new Vector2(20f, 68f), new Vector2(260f, 18f));
             uiSO.FindProperty("healthBar").objectReferenceValue = healthBar;
 
-            var healthText = UI_TMP(cv, "HealthText", "100", 17f, TextAlignmentOptions.Left,
-                new Vector2(0f, 0f), new Vector2(20f, 38f), new Vector2(120f, 22f));
+            var healthText = UI_TMP(cv, "HealthText", "100", 26f, TextAlignmentOptions.Left,
+                new Vector2(0f, 0f), new Vector2(20f, 42f), new Vector2(120f, 32f));
+            healthText.color     = new Color(0.20f, 1f, 0.20f);
+            healthText.fontStyle = TMPro.FontStyles.Bold;
             uiSO.FindProperty("healthText").objectReferenceValue = healthText;
 
             // Armor bar — bottom-left
             var armorBar = UI_Slider(cv, "ArmorBar", new Color(0.22f, 0.55f, 0.90f),
-                new Vector2(0f, 0f), new Vector2(20f, 34f), new Vector2(260f, 22f));
+                new Vector2(0f, 0f), new Vector2(20f, 36f), new Vector2(260f, 18f));
             uiSO.FindProperty("armorBar").objectReferenceValue = armorBar;
 
-            var armorText = UI_TMP(cv, "ArmorText", "0", 17f, TextAlignmentOptions.Left,
-                new Vector2(0f, 0f), new Vector2(20f, 12f), new Vector2(120f, 22f));
+            var armorText = UI_TMP(cv, "ArmorText", "0", 26f, TextAlignmentOptions.Left,
+                new Vector2(0f, 0f), new Vector2(20f, 10f), new Vector2(120f, 32f));
+            armorText.color     = new Color(0.45f, 0.55f, 1f);
+            armorText.fontStyle = TMPro.FontStyles.Bold;
             uiSO.FindProperty("armorText").objectReferenceValue = armorText;
 
-            // Ammo counter — bottom-right
-            var ammoText = UI_TMP(cv, "AmmoText", "30 / 180", 32f, TextAlignmentOptions.Right,
-                new Vector2(1f, 0f), new Vector2(-20f, 54f), new Vector2(280f, 44f));
+            // Ammo counter — bottom-right, large
+            var ammoText = UI_TMP(cv, "AmmoText", "30 / 180", 56f, TextAlignmentOptions.Right,
+                new Vector2(1f, 0f), new Vector2(-24f, 74f), new Vector2(320f, 68f));
+            ammoText.fontStyle = TMPro.FontStyles.Bold;
             uiSO.FindProperty("ammoText").objectReferenceValue = ammoText;
 
-            var weaponNameText = UI_TMP(cv, "WeaponNameText", "ASSAULT RIFLE", 14f, TextAlignmentOptions.Right,
-                new Vector2(1f, 0f), new Vector2(-20f, 32f), new Vector2(280f, 22f));
-            weaponNameText.color = new Color(0.75f, 0.75f, 0.75f);
+            var weaponNameText = UI_TMP(cv, "WeaponNameText", "ASSAULT RIFLE", 17f, TextAlignmentOptions.Right,
+                new Vector2(1f, 0f), new Vector2(-24f, 40f), new Vector2(320f, 26f));
+            weaponNameText.color     = new Color(0.55f, 0.85f, 1f);
+            weaponNameText.fontStyle = TMPro.FontStyles.Bold;
             uiSO.FindProperty("weaponNameText").objectReferenceValue = weaponNameText;
 
-            // Round + timer — top-left
-            var roundText = UI_TMP(cv, "RoundText", "ROUND 1 / 15", 18f, TextAlignmentOptions.Left,
-                new Vector2(0f, 1f), new Vector2(20f, -20f), new Vector2(260f, 28f));
-            uiSO.FindProperty("roundText").objectReferenceValue = roundText;
-
-            var timerText = UI_TMP(cv, "TimerText", "02:00", 18f, TextAlignmentOptions.Left,
-                new Vector2(0f, 1f), new Vector2(20f, -50f), new Vector2(140f, 28f));
+            // Timer — top-center, large
+            var timerText = UI_TMP(cv, "TimerText", "2:00", 42f, TextAlignmentOptions.Center,
+                new Vector2(0.5f, 1f), new Vector2(0f, -16f), new Vector2(220f, 58f));
+            timerText.fontStyle = TMPro.FontStyles.Bold;
             uiSO.FindProperty("timerText").objectReferenceValue = timerText;
 
+            // Round info — top-center below timer
+            var roundText = UI_TMP(cv, "RoundText", "ROUND 1 / 15", 22f, TextAlignmentOptions.Center,
+                new Vector2(0.5f, 1f), new Vector2(0f, -78f), new Vector2(320f, 32f));
+            roundText.color     = new Color(0f, 0.88f, 1f);
+            roundText.fontStyle = TMPro.FontStyles.Bold;
+            uiSO.FindProperty("roundText").objectReferenceValue = roundText;
+
             // Score + kills — top-right
-            var scoreText = UI_TMP(cv, "ScoreText", "0", 22f, TextAlignmentOptions.Right,
-                new Vector2(1f, 1f), new Vector2(-20f, -20f), new Vector2(200f, 30f));
+            var scoreText = UI_TMP(cv, "ScoreText", "0", 30f, TextAlignmentOptions.Right,
+                new Vector2(1f, 1f), new Vector2(-24f, -20f), new Vector2(240f, 40f));
+            scoreText.color     = new Color(1f, 0.85f, 0.10f);
+            scoreText.fontStyle = TMPro.FontStyles.Bold;
             uiSO.FindProperty("scoreText").objectReferenceValue = scoreText;
 
-            var killCountText = UI_TMP(cv, "KillCountText", "0 / 10", 16f, TextAlignmentOptions.Right,
-                new Vector2(1f, 1f), new Vector2(-20f, -52f), new Vector2(200f, 26f));
-            killCountText.color = new Color(0.75f, 0.75f, 0.75f);
+            var killCountText = UI_TMP(cv, "KillCountText", "0 KILLS", 19f, TextAlignmentOptions.Right,
+                new Vector2(1f, 1f), new Vector2(-24f, -62f), new Vector2(240f, 28f));
+            killCountText.color     = new Color(0.82f, 0.82f, 0.82f);
+            killCountText.fontStyle = TMPro.FontStyles.Bold;
             uiSO.FindProperty("killCountText").objectReferenceValue = killCountText;
+
+            var enemiesText = UI_TMP(cv, "EnemiesText", "ENEMIES  <color=#FF6666>0</color>", 19f, TextAlignmentOptions.Right,
+                new Vector2(1f, 1f), new Vector2(-24f, -94f), new Vector2(280f, 28f));
+            enemiesText.color     = new Color(0.82f, 0.82f, 0.82f);
+            enemiesText.fontStyle = TMPro.FontStyles.Bold;
+            uiSO.FindProperty("enemiesText").objectReferenceValue = enemiesText;
+
+            // Kill feed — right side, vertically centered
+            var kfGO = new GameObject("KillFeed");
+            kfGO.transform.SetParent(cv, false);
+            var kfRT         = kfGO.AddComponent<RectTransform>();
+            kfRT.anchorMin   = new Vector2(1f, 0.5f);
+            kfRT.anchorMax   = new Vector2(1f, 0.5f);
+            kfRT.pivot       = new Vector2(1f, 0.5f);
+            kfRT.anchoredPosition = new Vector2(-16f, 0f);
+            kfRT.sizeDelta   = new Vector2(330f, 320f);
+            var kfVlg = kfGO.AddComponent<UnityEngine.UI.VerticalLayoutGroup>();
+            kfVlg.childAlignment      = TextAnchor.LowerRight;
+            kfVlg.spacing             = 4f;
+            kfVlg.childControlWidth   = kfVlg.childControlHeight = true;
+            kfVlg.childForceExpandWidth = true;
+            kfGO.AddComponent<UnityEngine.UI.ContentSizeFitter>().verticalFit =
+                UnityEngine.UI.ContentSizeFitter.FitMode.PreferredSize;
+            uiSO.FindProperty("killFeedContainer").objectReferenceValue = kfGO.transform;
 
             // Crosshair lines — screen center
             var crossColor = new Color(0f, 1f, 0f, 0.9f);

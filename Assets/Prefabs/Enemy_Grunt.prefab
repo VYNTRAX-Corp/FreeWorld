@@ -149,6 +149,7 @@ MonoBehaviour:
   maxHealth: 100
   despawnDelay: 5
   scoreValue: 100
+  enemyTypeName: GRUNT
   lootPrefabs: []
   lootDropChance: 0.5
   bloodSplatterPrefab: {fileID: 0}
@@ -179,6 +180,7 @@ MonoBehaviour:
   attackDamage: 10
   attackRate: 1.5
   attackSpread: 3
+  variant: 0
   patrolPoints: []
   alertSound: {fileID: 0}
   shootSound: {fileID: 0}

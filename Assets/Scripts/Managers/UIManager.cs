@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
@@ -42,8 +43,7 @@ namespace FreeWorld.Managers
         [SerializeField] private TextMeshProUGUI scoreText;
         [SerializeField] private TextMeshProUGUI roundText;
         [SerializeField] private TextMeshProUGUI timerText;
-        [SerializeField] private TextMeshProUGUI killCountText;
-
+        [SerializeField] private TextMeshProUGUI killCountText;        [SerializeField] private TextMeshProUGUI enemiesText;
         // ── Kill Feed ─────────────────────────────────────────────────────────
         [Header("Kill Feed")]
         [SerializeField] private Transform       killFeedContainer;
@@ -68,6 +68,7 @@ namespace FreeWorld.Managers
         private float _flashTimer;
         private float _currentSpread;
         private GameState _lastKnownState = (GameState)(-1); // invalid sentinel
+        private int   _lastAmmo = -1;
 
         // ── Singleton ─────────────────────────────────────────────────────────
         public static UIManager Instance { get; private set; }
@@ -91,6 +92,27 @@ namespace FreeWorld.Managers
                     ? gameOverScreen.transform.Find("GameOverScore")
                     : null;
                 if (go != null) gameOverScoreText = go.GetComponent<TextMeshProUGUI>();
+            }
+
+            // Build kill feed container at runtime if not wired in inspector
+            if (killFeedContainer == null)
+            {
+                var kfGO = new GameObject("KillFeed");
+                kfGO.transform.SetParent(transform, false);
+                var kfRT         = kfGO.AddComponent<RectTransform>();
+                kfRT.anchorMin   = new Vector2(1f, 0.5f);
+                kfRT.anchorMax   = new Vector2(1f, 0.5f);
+                kfRT.pivot       = new Vector2(1f, 0.5f);
+                kfRT.anchoredPosition = new Vector2(-16f, 0f);
+                kfRT.sizeDelta   = new Vector2(330f, 320f);
+                var vlg = kfGO.AddComponent<VerticalLayoutGroup>();
+                vlg.childAlignment    = TextAnchor.LowerRight;
+                vlg.spacing           = 4f;
+                vlg.childControlWidth = vlg.childControlHeight = true;
+                vlg.childForceExpandWidth = true;
+                kfGO.AddComponent<ContentSizeFitter>().verticalFit =
+                    ContentSizeFitter.FitMode.PreferredSize;
+                killFeedContainer = kfGO.transform;
             }
 
             // Ensure an EventSystem exists — required for UI button clicks
@@ -241,13 +263,17 @@ namespace FreeWorld.Managers
 
         private void Start()
         {
+            SetupHUDStyle();
+
             // Subscribe in Start so GameManager.Instance is guaranteed to be set
             if (GameManager.Instance != null)
             {
-                GameManager.Instance.OnScoreChanged  += UpdateScore;
-                GameManager.Instance.OnRoundChanged  += UpdateRound;
-                GameManager.Instance.OnTimerTick     += UpdateTimer;
-                GameManager.Instance.OnStateChanged  += HandleStateChange;
+                GameManager.Instance.OnScoreChanged   += UpdateScore;
+                GameManager.Instance.OnRoundChanged   += UpdateRound;
+                GameManager.Instance.OnTimerTick      += UpdateTimer;
+                GameManager.Instance.OnStateChanged   += HandleStateChange;
+                GameManager.Instance.OnEnemyKilled    += ShowKillFeedEntry;
+                GameManager.Instance.OnEnemiesChanged += UpdateEnemiesRemaining;
             }
 
             // Subscribe to player health events
@@ -300,6 +326,18 @@ namespace FreeWorld.Managers
                 }
             }
 
+            // ── Poll timer and kill count every frame — works regardless of event order ──────
+            var gm = GameManager.Instance;
+            if (gm != null)
+            {
+                // Always poll — no state guard, so timer updates regardless of event ordering
+                if (timerText != null)
+                    UpdateTimer(gm.RoundTimer);
+
+                if (killCountText != null)
+                    killCountText.text = $"{gm.KillCount} KILLS";
+            }
+
             TickHitMarker();
             TickDamageFlash();
             TickCrosshair();
@@ -321,7 +359,19 @@ namespace FreeWorld.Managers
         // ── Ammo ──────────────────────────────────────────────────────────────
         public void UpdateAmmo(int current, int reserve)
         {
-            if (ammoText != null) ammoText.text = $"{current}  <size=70%>/ {reserve}</size>";
+            if (ammoText != null)
+            {
+                Color ammoColor = current > 10 ? Color.white
+                                : current >  5 ? new Color(1f, 0.60f, 0.10f)
+                                :                new Color(1f, 0.18f, 0.18f);
+                ammoText.color = ammoColor;
+                ammoText.text  = $"{current}  <size=60%><color=#AAAAAA>/ {reserve}</color></size>";
+                if (current != _lastAmmo)
+                {
+                    _lastAmmo = current;
+                    StartCoroutine(PopScale(ammoText.rectTransform));
+                }
+            }
             if (reloadIndicator != null) reloadIndicator.SetActive(current == 0);
         }
 
@@ -333,7 +383,9 @@ namespace FreeWorld.Managers
         // ── Score / Round ─────────────────────────────────────────────────────
         public void UpdateScore(int score)
         {
-            if (scoreText != null) scoreText.text = score.ToString("N0");
+            if (scoreText == null) return;
+            scoreText.text = score.ToString("N0");
+            StartCoroutine(PopScale(scoreText.rectTransform, 1.40f, 0.22f));
         }
 
         public void UpdateRound(int current, int total)
@@ -344,10 +396,22 @@ namespace FreeWorld.Managers
         public void UpdateTimer(float seconds)
         {
             if (timerText == null) return;
-            int m = Mathf.FloorToInt(seconds / 60f);
-            int s = Mathf.FloorToInt(seconds % 60f);
-            timerText.text = $"{m:00}:{s:00}";
-            timerText.color = seconds < 15f ? Color.red : Color.white;
+            float clamped = Mathf.Max(0f, seconds);
+            int m = Mathf.FloorToInt(clamped / 60f);
+            int s = Mathf.FloorToInt(clamped % 60f);
+            timerText.text = $"{m}:{s:00}";
+            if (clamped < 30f && clamped > 0f)
+            {
+                float pulse = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * Mathf.PI * 3f);
+                timerText.color = new Color(1f, pulse * 0.2f, pulse * 0.2f);
+                float sp = 1f + 0.08f * Mathf.Abs(Mathf.Sin(Time.unscaledTime * Mathf.PI * 2.5f));
+                timerText.rectTransform.localScale = new Vector3(sp, sp, 1f);
+            }
+            else
+            {
+                timerText.color = Color.white;
+                timerText.rectTransform.localScale = Vector3.one;
+            }
         }
 
         public void UpdateKillCount(int kills, int target)
@@ -421,21 +485,77 @@ namespace FreeWorld.Managers
         }
 
         // ── Kill Feed ─────────────────────────────────────────────────────────
-        public void AddKillFeedEntry(string killerName, string victimName, string weaponName)
+        public void ShowKillFeedEntry(string enemyType, int score)
         {
-            if (killFeedContainer == null || killFeedEntryPrefab == null) return;
+            if (killFeedContainer == null) return;
 
-            // Trim old entries
+            // Prune oldest entry when at capacity
             while (killFeedContainer.childCount >= maxKillFeedEntries)
                 Destroy(killFeedContainer.GetChild(0).gameObject);
 
-            GameObject entry = Instantiate(killFeedEntryPrefab, killFeedContainer);
-            TextMeshProUGUI txt = entry.GetComponentInChildren<TextMeshProUGUI>();
-            if (txt != null)
-                txt.text = $"<b>{killerName}</b>  [{weaponName}]  <color=red>{victimName}</color>";
+            // Container row
+            var row    = new GameObject("KF_Row");
+            row.transform.SetParent(killFeedContainer, false);
+            var rowImg = row.AddComponent<Image>();
+            rowImg.color         = new Color(0f, 0f, 0f, 0.45f);
+            rowImg.raycastTarget = false;
+            var le               = row.AddComponent<LayoutElement>();
+            le.preferredHeight   = 28f;
 
-            Destroy(entry, killFeedEntryDuration);
+            // Text child
+            var textGO = new GameObject("Text");
+            textGO.transform.SetParent(row.transform, false);
+            var tmp    = textGO.AddComponent<TextMeshProUGUI>();
+
+            Color typeColor = enemyType == "HEAVY" ? new Color(0.40f, 0.60f, 1.00f)
+                            : enemyType == "SCOUT" ? new Color(1.00f, 0.90f, 0.15f)
+                            : new Color(0.85f, 0.85f, 0.85f);
+
+            tmp.text      = $"<color=#66EE66>YOU</color>  <b>x</b>  " +
+                            $"<color=#{ColorToHex(typeColor)}>{enemyType}</color>  " +
+                            $"<color=#FFD700>+{score}</color>";
+            tmp.fontSize  = 13f;
+            tmp.alignment = TextAlignmentOptions.Right;
+            tmp.raycastTarget = false;
+            var tRT       = textGO.GetComponent<RectTransform>();
+            tRT.anchorMin = Vector2.zero; tRT.anchorMax = Vector2.one;
+            tRT.offsetMin = new Vector2(8f, 0f);
+            tRT.offsetMax = new Vector2(-8f, 0f);
+
+            StartCoroutine(FadeKillEntry(row, tmp, rowImg));
         }
+
+        private IEnumerator FadeKillEntry(GameObject row, TextMeshProUGUI tmp, Image bg)
+        {
+            yield return new WaitForSecondsRealtime(killFeedEntryDuration - 0.6f);
+            float t = 0f;
+            while (t < 0.6f && row != null)
+            {
+                t += Time.unscaledDeltaTime;
+                float a = 1f - (t / 0.6f);
+                if (bg  != null) bg.color  = new Color(0f, 0f, 0f, 0.45f * a);
+                if (tmp != null) tmp.alpha = a;
+                yield return null;
+            }
+            if (row != null) Destroy(row);
+        }
+
+        private static string ColorToHex(Color c)
+        {
+            return $"{ToByte(c.r):X2}{ToByte(c.g):X2}{ToByte(c.b):X2}";
+        }
+        private static int ToByte(float f) => Mathf.Clamp(Mathf.RoundToInt(f * 255f), 0, 255);
+
+        public void UpdateEnemiesRemaining(int count)
+        {
+            if (enemiesText == null) return;
+            enemiesText.text = $"ENEMIES  <color=#FF6666>{count}</color>";
+            StartCoroutine(PopScale(enemiesText.rectTransform, 1.25f, 0.14f));
+        }
+
+        // Legacy overload kept for compatibility
+        public void AddKillFeedEntry(string killerName, string victimName, string weaponName)
+            => ShowKillFeedEntry(victimName, 0);
 
         // ── Screen management ─────────────────────────────────────────────────
         /// <summary>Called by Resume button. Hides the pause screen and restores play state.</summary>
@@ -445,6 +565,141 @@ namespace FreeWorld.Managers
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible   = false;
             GameManager.Instance?.TogglePause();
+        }
+
+        // ── HUD Styling & Animation ───────────────────────────────────────────
+        private void SetupHUDStyle()
+        {
+            // ── Ammo (bottom-right, very large) ──────────────────────────────
+            ApplyHUDStyle(ammoText,       56f, Color.white);
+            if (ammoText != null)
+            {
+                var rt = ammoText.rectTransform;
+                rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(1f, 0f);
+                rt.anchoredPosition = new Vector2(-24f, 78f);
+                rt.sizeDelta        = new Vector2(320f, 68f);
+                ammoText.alignment  = TextAlignmentOptions.Right;
+            }
+            ApplyHUDStyle(weaponNameText, 16f, new Color(0.55f, 0.85f, 1f));
+            if (weaponNameText != null)
+            {
+                var rt = weaponNameText.rectTransform;
+                rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(1f, 0f);
+                rt.anchoredPosition = new Vector2(-24f, 44f);
+                rt.sizeDelta        = new Vector2(320f, 28f);
+                weaponNameText.alignment = TextAlignmentOptions.Right;
+            }
+
+            // ── Timer (top-center, large) ─────────────────────────────────────
+            ApplyHUDStyle(timerText, 42f, Color.white);
+            if (timerText != null)
+            {
+                var rt = timerText.rectTransform;
+                rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 1f);
+                rt.anchoredPosition = new Vector2(0f, -16f);
+                rt.sizeDelta        = new Vector2(220f, 58f);
+                timerText.alignment = TextAlignmentOptions.Center;
+            }
+
+            // ── Round info (top-center, below timer) ──────────────────────────
+            ApplyHUDStyle(roundText, 20f, new Color(0f, 0.88f, 1f));
+            if (roundText != null)
+            {
+                var rt = roundText.rectTransform;
+                rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 1f);
+                rt.anchoredPosition = new Vector2(0f, -74f);
+                rt.sizeDelta        = new Vector2(320f, 30f);
+                roundText.alignment = TextAlignmentOptions.Center;
+            }
+
+            // ── Score / kills (top-right) ─────────────────────────────────────
+            ApplyHUDStyle(scoreText, 30f, new Color(1f, 0.85f, 0.10f));
+            if (scoreText != null)
+            {
+                var rt = scoreText.rectTransform;
+                rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(1f, 1f);
+                rt.anchoredPosition = new Vector2(-24f, -20f);
+                rt.sizeDelta        = new Vector2(240f, 40f);
+                scoreText.alignment = TextAlignmentOptions.Right;
+            }
+            ApplyHUDStyle(killCountText, 18f, new Color(0.78f, 0.78f, 0.78f));
+            if (killCountText != null)
+            {
+                var rt = killCountText.rectTransform;
+                rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(1f, 1f);
+                rt.anchoredPosition = new Vector2(-24f, -62f);
+                rt.sizeDelta        = new Vector2(240f, 28f);
+                killCountText.alignment = TextAlignmentOptions.Right;
+            }
+            ApplyHUDStyle(enemiesText, 18f, new Color(0.78f, 0.78f, 0.78f));
+            if (enemiesText != null)
+            {
+                var rt = enemiesText.rectTransform;
+                rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(1f, 1f);
+                rt.anchoredPosition = new Vector2(-24f, -94f);
+                rt.sizeDelta        = new Vector2(280f, 28f);
+                enemiesText.alignment = TextAlignmentOptions.Right;
+            }
+
+            // ── Health / armor (bottom-left) ──────────────────────────────────
+            ApplyHUDStyle(healthText, 28f, new Color(0.20f, 1f, 0.20f));
+            if (healthText != null)
+            {
+                var rt = healthText.rectTransform;
+                rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0f, 0f);
+                rt.anchoredPosition = new Vector2(20f, 90f);
+                rt.sizeDelta        = new Vector2(150f, 36f);
+                healthText.alignment = TextAlignmentOptions.Left;
+            }
+            ApplyHUDStyle(armorText, 22f, new Color(0.45f, 0.55f, 1f));
+            if (armorText != null)
+            {
+                var rt = armorText.rectTransform;
+                rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0f, 0f);
+                rt.anchoredPosition = new Vector2(20f, 10f);
+                rt.sizeDelta        = new Vector2(150f, 30f);
+                armorText.alignment = TextAlignmentOptions.Left;
+            }
+            // Reposition bars to match taller text
+            if (healthBar != null)
+            {
+                var rt = healthBar.GetComponent<RectTransform>();
+                rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0f, 0f);
+                rt.anchoredPosition = new Vector2(20f, 74f);
+                rt.sizeDelta        = new Vector2(260f, 14f);
+            }
+            if (armorBar != null)
+            {
+                var rt = armorBar.GetComponent<RectTransform>();
+                rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0f, 0f);
+                rt.anchoredPosition = new Vector2(20f, 38f);
+                rt.sizeDelta        = new Vector2(260f, 14f);
+            }
+        }
+
+        private void ApplyHUDStyle(TextMeshProUGUI t, float fontSize, Color color)
+        {
+            if (t == null) return;
+            t.fontSize     = fontSize;
+            t.color        = color;
+            t.fontStyle    = FontStyles.Bold;
+            t.outlineWidth = 0.22f;
+            t.outlineColor = new Color32(0, 0, 0, 220);
+        }
+
+        private IEnumerator PopScale(RectTransform rt, float peak = 1.30f, float duration = 0.16f)
+        {
+            if (rt == null) yield break;
+            float t = 0f;
+            while (t < duration)
+            {
+                t += Time.unscaledDeltaTime;
+                float p = t / duration;
+                float s = Mathf.Lerp(peak, 1f, Mathf.SmoothStep(0f, 1f, p));
+                rt.localScale = new Vector3(s, s, 1f);
+                yield return null;
+            }
+            rt.localScale = Vector3.one;
         }
 
         private void HideAllScreens()

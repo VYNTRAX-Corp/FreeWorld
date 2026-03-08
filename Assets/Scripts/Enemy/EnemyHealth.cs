@@ -1,4 +1,5 @@
 using System;
+using FreeWorld.Utilities;
 using UnityEngine;
 
 namespace FreeWorld.Enemy
@@ -15,6 +16,7 @@ namespace FreeWorld.Enemy
         [Header("Death")]
         [SerializeField] private float despawnDelay = 5f;
         [SerializeField] private int   scoreValue   = 100;
+        [SerializeField] private string enemyTypeName = "GRUNT";
 
         [Header("Loot Drop")]
         [SerializeField] private GameObject[] lootPrefabs;
@@ -30,6 +32,15 @@ namespace FreeWorld.Enemy
 
         private EnemyAI _ai;
 
+        // ── Variant configuration (called by EnemyAI.ApplyVariant) ─────────────────────────
+        public void Configure(float hp, int score, string typeName)
+        {
+            maxHealth     = hp;
+            CurrentHealth = hp;
+            scoreValue    = score;
+            enemyTypeName = typeName;
+        }
+
         // ─────────────────────────────────────────────────────────────────────
         private void Awake()
         {
@@ -42,6 +53,9 @@ namespace FreeWorld.Enemy
             if (!IsAlive) return;
 
             CurrentHealth -= amount;
+
+            // Floating damage number at the hit point
+            DamageNumber.Show(amount, hitPoint != default ? hitPoint : transform.position + Vector3.up);
 
             // Blood hit effect
             if (bloodSplatterPrefab != null)
@@ -62,7 +76,7 @@ namespace FreeWorld.Enemy
             _ai?.OnDeath();
 
             // Award score via GameManager
-            Managers.GameManager.Instance?.AddScore(scoreValue);
+            Managers.GameManager.Instance?.EnemyKilled(enemyTypeName, scoreValue);
 
             OnDeathEvent?.Invoke();
 

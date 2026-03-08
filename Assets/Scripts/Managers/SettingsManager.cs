@@ -31,7 +31,13 @@ namespace FreeWorld.Managers
         // ─────────────────────────────────────────────────────────────────────
         private void Awake()
         {
-            if (Instance != null && Instance != this) { Destroy(gameObject); return; }
+            if (Instance != null && Instance != this)
+            {
+                // Destroy only this component, NOT the whole gameObject.
+                // GameManager (or other components) may share this GO.
+                Destroy(this);
+                return;
+            }
             Instance = this;
             if (transform.parent != null) transform.SetParent(null);
             DontDestroyOnLoad(gameObject);
