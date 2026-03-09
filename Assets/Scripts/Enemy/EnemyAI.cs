@@ -1,12 +1,13 @@
 using UnityEngine;
 using UnityEngine.AI;
 using System.Collections;
+using FreeWorld.Audio;
 using FreeWorld.Utilities;
 
 namespace FreeWorld.Enemy
 {
     public enum EnemyState   { Idle, Patrol, Chase, Attack, TakingCover, Investigate, Flank, Dead }
-    public enum EnemyVariant  { Grunt, Heavy, Scout }
+    public enum EnemyVariant  { Grunt, Heavy, Scout, OriginalSkin }
 
     /// <summary>
     /// Basic FPS enemy AI using Unity NavMesh.
@@ -37,12 +38,18 @@ namespace FreeWorld.Enemy
         [SerializeField] private EnemyVariant variant   = EnemyVariant.Grunt;
         [SerializeField] private Transform[] patrolPoints;
 
+        // ── Character model (optional — assign a CC0 humanoid FBX prefab) ────
+        [Header("Character Model (CC0 — optional)")]
+        [Tooltip("Assign a humanoid FBX prefab from Assets/Characters to replace the procedural body. " +
+                 "Use FreeWorld → Setup → 5 - Set Up Character Models to import and configure a CC0 model.")]
+        [SerializeField] private GameObject _characterModelPrefab;
+
         // ── Audio & VFX ───────────────────────────────────────────────────────
         [Header("Audio")]
         [SerializeField] private AudioClip alertSound;
         [SerializeField] private AudioClip shootSound;
-        [SerializeField] private AudioClip deathSound;
-
+        [SerializeField] private AudioClip deathSound;        [Tooltip("Shared audio bank (auto-found from Resources/WeaponAudioBank). Clips here override procedural synthesis.")]
+        [SerializeField] private WeaponAudioBank audioBank;
         // ── Internal ──────────────────────────────────────────────────────────
         private NavMeshAgent _agent;
         private AudioSource  _audio;
@@ -68,6 +75,11 @@ namespace FreeWorld.Enemy
         /// <summary>Read by EnemyProceduralAnimator to select the right animation.</summary>
         public EnemyState CurrentState => _state;
 
+        /// <summary>Intended movement velocity for animation. Always reflects the desired
+        /// movement even when NavMesh clamps the actual displacement (e.g. strafe against wall).
+        /// Updated every frame before EnemyModelAnimator.Update() reads it.</summary>
+        public Vector3 AnimationVelocity { get; private set; }
+
         // ─────────────────────────────────────────────────────────────────────
         private void Awake()
         {
@@ -75,13 +87,74 @@ namespace FreeWorld.Enemy
             _audio  = GetComponent<AudioSource>();
             _health = GetComponent<EnemyHealth>();
 
+            // 3D spatial audio — sounds come from the enemy's world position
+            if (_audio != null)
+            {
+                _audio.spatialBlend = 1f;
+                _audio.minDistance  = 1f;
+                _audio.maxDistance  = 35f;
+                _audio.rolloffMode  = AudioRolloffMode.Linear;
+                _audio.playOnAwake  = false;
+            }
+
+            // Auto-load bank
+            if (audioBank == null)
+                audioBank = Resources.Load<WeaponAudioBank>("WeaponAudioBank");
+
             // Cache player transform — assumes single player (extend for multiplayer)
             GameObject playerObj = GameObject.FindGameObjectWithTag("Player");
             if (playerObj != null) _player = playerObj.transform;
 
-            // Build procedural humanoid body (before ApplyVariant so color can be set)
-            _bodyParts = EnemyHumanoidBuilder.Build(transform, new Color(0.15f, 0.28f, 0.12f));
-            GetComponent<EnemyProceduralAnimator>()?.Init(_bodyParts);
+            // Build humanoid body — real model path takes priority over procedural
+            if (_characterModelPrefab != null)
+            {
+                // Instantiate CC0 model as a child of this root
+                var modelGO = Object.Instantiate(_characterModelPrefab, transform);
+                // Y = -1: capsule GO origin is at capsule centre; model root is at feet
+                modelGO.transform.localPosition = new Vector3(0f, -1f, 0f);
+                modelGO.transform.localRotation = Quaternion.identity;
+
+                // Strip colliders from the model — root capsule handles all physics
+                foreach (var col in modelGO.GetComponentsInChildren<Collider>())
+                    Object.Destroy(col);
+
+                var animator = modelGO.GetComponent<Animator>()
+                            ?? modelGO.GetComponentInChildren<Animator>();
+
+                if (animator != null && animator.isHuman)
+                {
+                    // Root motion fights NavMeshAgent — always disable it
+                    animator.applyRootMotion = false;
+
+                    _bodyParts = EnemyHumanoidBuilder.BuildFromAnimator(
+                        transform, animator, new Color(0.15f, 0.28f, 0.12f));
+
+                    // Add runtime animator wrapper; disable procedural animator
+                    var modelAnim = gameObject.AddComponent<EnemyModelAnimator>();
+                    modelAnim.Init(_bodyParts, animator);
+                    var procAnim  = GetComponent<EnemyProceduralAnimator>();
+                    if (procAnim != null) procAnim.enabled = false;
+
+                    // Tighten NavMesh obstacle avoidance so it can't clip through walls
+                    if (_agent != null)
+                    {
+                        _agent.obstacleAvoidanceType = ObstacleAvoidanceType.HighQualityObstacleAvoidance;
+                        _agent.radius = 0.4f;
+                    }
+                }
+                else
+                {
+                    Debug.LogWarning("[EnemyAI] Assigned model has no humanoid Animator — falling back to procedural humanoid.", gameObject);
+                    _bodyParts = EnemyHumanoidBuilder.Build(transform, new Color(0.15f, 0.28f, 0.12f));
+                    GetComponent<EnemyProceduralAnimator>()?.Init(_bodyParts);
+                }
+            }
+            else
+            {
+                // Default procedural primitive body (no model assigned)
+                _bodyParts = EnemyHumanoidBuilder.Build(transform, new Color(0.15f, 0.28f, 0.12f));
+                GetComponent<EnemyProceduralAnimator>()?.Init(_bodyParts);
+            }
 
             // Build gun and wire shooting module
             var gunVis   = EnemyGunBuilder.Build(_bodyParts.RightForeArm);
@@ -89,7 +162,11 @@ namespace FreeWorld.Enemy
             if (_shootModule != null)
             {
                 _shootModule.Init(gunVis?.MuzzlePoint);
-                _shootModule.ShootAudioClip = shootSound;
+                // Prefer: Inspector field → bank clip → procedural (set in EnemyShootingModule)
+                if (shootSound != null)
+                    _shootModule.ShootAudioClip = shootSound;
+                else if (audioBank == null)
+                    audioBank = Resources.Load<WeaponAudioBank>("WeaponAudioBank");
             }
 
             if (_health != null)
@@ -132,8 +209,14 @@ namespace FreeWorld.Enemy
                     _shootModule?.Configure(7f, 3.0f, 2f, 1, 30, 1.8f, 22f);
                     break;
 
-                default: // Grunt — standard battle rifle
-                    SetRendererColor(new Color(0.15f, 0.28f, 0.12f));
+                case EnemyVariant.OriginalSkin:
+                    _health?.Configure(100f, 200, "SWAT");
+                    // No tint — original Mixamo textures unchanged
+                    _shootModule?.Configure(12f, 1.5f, 3f, 1, 20, 2.0f, 16f);
+                    break;
+
+                default: // Grunt — standard battle rifle, original SWAT skin
+                    // No tint — original Mixamo textures unchanged
                     _shootModule?.Configure(10f, 1.2f, 4f, 1, 20, 2.2f, 14f);
                     break;
             }
@@ -145,6 +228,11 @@ namespace FreeWorld.Enemy
             EnemyHumanoidBuilder.SetClothingColor(_bodyParts, c);
         }
 
+        private void ClearRendererColorTint()
+        {
+            EnemyHumanoidBuilder.ClearClothingTint(_bodyParts);
+        }
+
         private void Update()
         {
             if (_state == EnemyState.Dead) return;
@@ -152,6 +240,9 @@ namespace FreeWorld.Enemy
             _playerVisible = CanSeePlayer();
             if (_playerVisible && _player != null)
                 _lastKnownPlayerPos = _player.position;
+
+            // Default: use NavMesh agent velocity (states that call SetDestination)
+            AnimationVelocity = _agent != null ? _agent.velocity : Vector3.zero;
 
             switch (_state)
             {
@@ -239,6 +330,8 @@ namespace FreeWorld.Enemy
                 _strafeDir   = Random.value > 0.5f ? 1f : -1f;
                 _strafeTimer = Random.Range(1.0f, 2.5f);
             }
+            // Override AnimationVelocity with the INTENDED strafe — bypasses NavMesh clamping
+            AnimationVelocity = transform.right * (_strafeDir * 2.0f);
             _agent.Move(transform.right * (_strafeDir * 2.0f * Time.deltaTime));
 
             // Reaction delay before opening fire (shorter as difficulty rises)
@@ -288,7 +381,7 @@ namespace FreeWorld.Enemy
                     PlayAlertSound();
                     break;
                 case EnemyState.Attack:
-                    _agent.isStopped = true;
+                    _agent.ResetPath();          // stop pathing; Move() still works (isStopped=true blocks Move)
                     _strafeTimer     = Random.Range(0.4f, 1.2f);
                     _reactionTimer   = adapt?.ReactionDelay ?? 0.5f;
                     break;
@@ -314,7 +407,12 @@ namespace FreeWorld.Enemy
             _state            = EnemyState.Dead;
             _agent.isStopped  = true;
             _agent.enabled    = false;
-            PlaySound(deathSound);
+
+            if (_audio == null) return;
+            if (deathSound != null) { _audio.PlayOneShot(deathSound); return; }
+            var clip = WeaponAudioBank.Pick(audioBank?.EnemyDeath);
+            if (clip != null) _audio.PlayOneShot(clip);
+            else Utilities.ProceduralAudioLibrary.Play(_audio, Utilities.ProceduralAudioLibrary.ClipEnemyDeath, 0.9f);
         }
 
         // ── Patrol helpers ────────────────────────────────────────────────────
@@ -343,7 +441,15 @@ namespace FreeWorld.Enemy
         {
             if (_audio == null) return;
             if (alertSound != null)
+            {
                 _audio.PlayOneShot(alertSound);
+                return;
+            }
+            if (audioBank == null)
+                audioBank = Resources.Load<WeaponAudioBank>("WeaponAudioBank");
+            var clip = WeaponAudioBank.Pick(audioBank?.EnemyAlert);
+            if (clip != null)
+                _audio.PlayOneShot(clip);
             else
                 Utilities.ProceduralAudioLibrary.Play(
                     _audio, Utilities.ProceduralAudioLibrary.ClipEnemyAlert, 0.65f);
@@ -366,8 +472,13 @@ namespace FreeWorld.Enemy
             _footstepTimer = interval;
 
             float vol = Mathf.Lerp(0.18f, 0.38f, Mathf.InverseLerp(patrolSpeed, chaseSpeed, speed));
-            Utilities.ProceduralAudioLibrary.Play(
-                _audio, Utilities.ProceduralAudioLibrary.ClipFootstep, vol);
+
+            var clip = WeaponAudioBank.Pick(audioBank?.Footstep);
+            if (clip != null)
+                _audio.PlayOneShot(clip, vol);
+            else
+                Utilities.ProceduralAudioLibrary.Play(
+                    _audio, Utilities.ProceduralAudioLibrary.ClipFootstep, vol);
         }
         // ── New behaviour states ─────────────────────────────────────────────────────
         private void UpdateInvestigate()

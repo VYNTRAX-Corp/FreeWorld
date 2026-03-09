@@ -140,12 +140,83 @@ namespace FreeWorld.Utilities
             return parts;
         }
 
+        // ── Build from imported humanoid Animator (CC0 / real model path) ────
+        /// <summary>
+        /// Populates EnemyBodyParts from a Unity humanoid Animator using
+        /// GetBoneTransform(HumanBodyBones.*) so no bone names need hardcoding.
+        /// Call this instead of Build() when a real CC0 model is in use.
+        /// clothingColor is applied as a MaterialPropertyBlock tint so the
+        /// original materials are not replaced.
+        /// </summary>
+        public static EnemyBodyParts BuildFromAnimator(Transform root, Animator animator, Color clothingColor)
+        {
+            // Suppress root capsule mesh (keep collider / NavMesh)
+            var rootRend = root.GetComponent<Renderer>();
+            if (rootRend != null) rootRend.enabled = false;
+
+            var parts = new EnemyBodyParts();
+
+            // Map Unity's standard humanoid bones → our transform slots.
+            // GetBoneTransform returns null for bones that don't exist in the rig —
+            // the animator / procedural code handles null transforms gracefully.
+            parts.Head         = animator.GetBoneTransform(HumanBodyBones.Head);
+            parts.Body         = animator.GetBoneTransform(HumanBodyBones.Hips);
+            parts.Torso        = animator.GetBoneTransform(HumanBodyBones.UpperChest)
+                              ?? animator.GetBoneTransform(HumanBodyBones.Chest)
+                              ?? animator.GetBoneTransform(HumanBodyBones.Spine);
+
+            parts.LeftUpperArm  = animator.GetBoneTransform(HumanBodyBones.LeftUpperArm);
+            parts.LeftForeArm   = animator.GetBoneTransform(HumanBodyBones.LeftLowerArm);
+            parts.RightUpperArm = animator.GetBoneTransform(HumanBodyBones.RightUpperArm);
+            parts.RightForeArm  = animator.GetBoneTransform(HumanBodyBones.RightLowerArm);
+
+            parts.LeftUpperLeg  = animator.GetBoneTransform(HumanBodyBones.LeftUpperLeg);
+            parts.LeftLowerLeg  = animator.GetBoneTransform(HumanBodyBones.LeftLowerLeg);
+            parts.RightUpperLeg = animator.GetBoneTransform(HumanBodyBones.RightUpperLeg);
+            parts.RightLowerLeg = animator.GetBoneTransform(HumanBodyBones.RightLowerLeg);
+
+            // For imported models keep original textures intact — no tint applied.
+            // ClothingRenderers is populated so SetClothingColor can optionally tint later.
+            var renderers = root.GetComponentsInChildren<Renderer>();
+
+            parts.ClothingRenderers = renderers;
+            // ClothingMaterial stays null — use SetClothingColor overload below.
+            return parts;
+        }
+
         // ── Set uniform color (called by ApplyVariant) ────────────────────────
         public static void SetClothingColor(EnemyBodyParts parts, Color color)
         {
             if (parts?.ClothingRenderers == null) return;
+
+            if (parts.ClothingMaterial != null)
+            {
+                // Procedural path — direct material tint
+                foreach (var r in parts.ClothingRenderers)
+                    if (r != null) r.material.color = color;
+            }
+            else
+            {
+                // Imported-model path — tint via property block (no material duplication)
+                var block = new MaterialPropertyBlock();
+                block.SetColor("_BaseColor", color);
+                block.SetColor("_Color",     color);
+                foreach (var r in parts.ClothingRenderers)
+                    if (r != null) r.SetPropertyBlock(block);
+            }
+        }
+
+        // ── Clear tint — restore original textures (OriginalSkin variant) ─────
+        public static void ClearClothingTint(EnemyBodyParts parts)
+        {
+            if (parts?.ClothingRenderers == null) return;
+            // Reset _BaseColor to white = no tint; original material textures show through.
+            // Cannot use SetPropertyBlock(null) — unreliable in URP.
+            var block = new MaterialPropertyBlock();
+            block.SetColor("_BaseColor", Color.white);
+            block.SetColor("_Color",     Color.white);
             foreach (var r in parts.ClothingRenderers)
-                if (r != null) r.material.color = color;
+                if (r != null) r.SetPropertyBlock(block);
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────

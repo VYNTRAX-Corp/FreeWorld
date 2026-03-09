@@ -882,6 +882,20 @@ namespace FreeWorld.Editor
             enemy.AddComponent<EnemyHealthBar>();
             enemy.AddComponent<AudioSource>();
 
+            // Auto-assign Swat model prefab if it exists
+            const string swatPrefabPath = "Assets/Characters/Swat_Enemy.prefab";
+            var swatPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(swatPrefabPath);
+            if (swatPrefab != null)
+            {
+                var ai = enemy.GetComponent<EnemyAI>();
+                if (ai != null)
+                {
+                    var so = new SerializedObject(ai);
+                    so.FindProperty("_characterModelPrefab").objectReferenceValue = swatPrefab;
+                    so.ApplyModifiedPropertiesWithoutUndo();
+                }
+            }
+
             return enemy;
         }
 

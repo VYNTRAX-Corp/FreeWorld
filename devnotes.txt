@@ -1,6 +1,48 @@
 Day 2 - Dynamic crossshair, main menu, loading indication, basic surface textures, jump, pause menu. 
 
 
+Day 4 of building my own FPS game from scratch 🎮
+
+Enemies now support REAL human skins 🧑‍🤝‍🧑
+
+Been using procedural primitive bodies since day 2 —
+cubes, cylinders, spheres stitched together.
+Today I built the full pipeline to swap those out for actual CC0 humanoid models.
+
+How it works under the hood:
+→ Drop any CC0 humanoid FBX into Assets/Characters/
+→ Hit "Configure Models" in the new editor tool
+→ It auto-sets Humanoid rig, bakes the avatar, generates an AnimatorController
+→ Assign the prefab to the enemy in the Inspector — done
+
+The enemy AI doesn't care which body it's running on:
+Both paths (procedural primitives OR real FBX) return the same
+EnemyBodyParts struct with bone Transform references.
+EnemyModelAnimator drives the Animator via Speed, IsAttacking,
+IsReloading, IsDead parameters — the AI logic didn't change at all.
+
+The gun automatically attaches to the right forearm bone either way. 🔫
+
+The AnimatorController comes pre-wired:
+Idle → Walk → Run → Aim → Reload → Death
+All transitions, all parameters — just drag your animation clips in.
+
+Best CC0 character sources I found:
+🎭 Quaternius (quaternius.itch.io) — low poly humanoids, CC0, includes animations
+🎭 Kenney — toon characters pack, CC0, clean topology
+🎭 OpenGameArt — various CC0 base meshes
+
+The whole system is a clean fallback chain:
+Real model → procedural if no model assigned
+No code changes needed in the AI when you switch
+
+Everything is still 100% code, zero bought assets
+
+Built with Unity + GitHub Copilot 🤖
+
+#gamedev #unity3d #fps #indiegame #coding #buildinpublic #gamedevelopment #unitydeveloper #csharp #devlog #gameai
+
+
 Day 3 of building my own FPS game from scratch 🎮
 
 The game finally looks like a GAME 🔥

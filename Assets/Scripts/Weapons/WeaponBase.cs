@@ -1,4 +1,5 @@
 using System;
+using FreeWorld.Audio;
 using FreeWorld.Managers;
 using FreeWorld.Utilities;
 using UnityEngine;
@@ -50,10 +51,15 @@ namespace FreeWorld.Weapons
 
         // ── Audio ─────────────────────────────────────────────────────────────
         [Header("Audio")]
+        [Tooltip("Optional — leave blank to auto-assign from the WeaponAudioBank.")]
         [SerializeField] protected AudioClip shootSound;
         [SerializeField] protected AudioClip reloadSound;
         [SerializeField] protected AudioClip emptySound;
         [SerializeField] protected AudioClip drawSound;
+
+        [Header("Audio Bank (optional — auto-found in Resources)")]
+        [Tooltip("Shared WeaponAudioBank asset. Leave blank — the field is auto-populated from Resources/WeaponAudioBank.")]
+        [SerializeField] private WeaponAudioBank audioBank;
 
         // ── VFX ───────────────────────────────────────────────────────────────
         [Header("VFX")]
@@ -167,7 +173,7 @@ namespace FreeWorld.Weapons
 
             PerformRaycast();
             PlayMuzzleFlash();
-            PlaySound(shootSound);
+            PlayShootSound();
 
             // Spread crosshair on each shot
             UIManager.Instance?.AddCrosshairSpread(recoilVertical * 6f);
@@ -277,6 +283,17 @@ namespace FreeWorld.Weapons
                 PlayProceduralShot();  // fallback click so shooting feels responsive
         }
 
+        // Picks a fresh random clip from the bank each shot to avoid repetition.
+        private void PlayShootSound()
+        {
+            if (audioBank != null)
+            {
+                var pick = WeaponAudioBank.Pick(audioBank.ShootClipsFor(weaponType));
+                if (pick != null) { _audio?.PlayOneShot(pick); return; }
+            }
+            PlaySound(shootSound);  // single cached clip or procedural
+        }
+
         // Use the cached ProceduralAudioLibrary instead of allocating a new clip each shot
         private void PlayProceduralShot()
         {
@@ -305,9 +322,21 @@ namespace FreeWorld.Weapons
         }
 
         // ── Procedural fallbacks in Awake ─────────────────────────────────────
-        // Assign library clips so every weapon sounds alive even without AudioClip assets
+        // Assign clips: SerializedField → AudioBank → ProceduralAudioLibrary
         private void AssignFallbackClips()
         {
+            // Try to auto-find bank if not wired in Inspector
+            if (audioBank == null)
+                audioBank = Resources.Load<WeaponAudioBank>("WeaponAudioBank");
+
+            if (shootSound  == null && audioBank != null)
+                shootSound  = WeaponAudioBank.Pick(audioBank.ShootClipsFor(weaponType));
+            if (reloadSound == null && audioBank != null)
+                reloadSound = WeaponAudioBank.Pick(audioBank.ReloadClipsFor(weaponType));
+            if (emptySound  == null && audioBank != null)
+                emptySound  = WeaponAudioBank.Pick(audioBank.DryFire);
+
+            // Final fallback: synthesised procedural audio
             if (shootSound  == null) shootSound  = ProceduralAudioLibrary.ClipGunshot;
             if (reloadSound == null) reloadSound = ProceduralAudioLibrary.ClipReload;
             if (emptySound  == null) emptySound  = ProceduralAudioLibrary.ClipEmpty;

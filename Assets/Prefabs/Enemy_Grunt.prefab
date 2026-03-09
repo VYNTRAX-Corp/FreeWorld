@@ -181,6 +181,7 @@ MonoBehaviour:
   patrolWaitTime: 2
   variant: 0
   patrolPoints: []
+  _characterModelPrefab: {fileID: 2947947337924308470, guid: 65262b9a65a0d10438e0c3ddefcb1aea, type: 3}
   alertSound: {fileID: 0}
   shootSound: {fileID: 0}
   deathSound: {fileID: 0}

@@ -1,5 +1,6 @@
 using UnityEngine;
 using System.Collections;
+using FreeWorld.Audio;
 using FreeWorld.Utilities;
 
 namespace FreeWorld.Enemy
@@ -46,6 +47,9 @@ namespace FreeWorld.Enemy
         [Tooltip("Optional — wire an AudioClip here or leave blank. EnemyAI forwards its shootSound automatically.")]
         public AudioClip ShootAudioClip;
 
+        [Tooltip("Shared audio bank — auto-found from Resources/WeaponAudioBank. Enables multiple shoot variants.")]
+        public WeaponAudioBank AudioBank;
+
         // ── Public state (readable by animator/HUD) ───────────────────────────
         public bool IsFiring    { get; private set; }
         public bool IsReloading { get; private set; }
@@ -64,6 +68,20 @@ namespace FreeWorld.Enemy
             _muzzle   = muzzlePoint;
             _audio    = GetComponent<AudioSource>();
             AmmoInMag = MagSize;
+
+            // Configure 3D spatial audio so shots sound positional in the world
+            if (_audio != null)
+            {
+                _audio.spatialBlend   = 1f;    // full 3D
+                _audio.minDistance    = 2f;
+                _audio.maxDistance    = 40f;
+                _audio.rolloffMode    = AudioRolloffMode.Linear;
+                _audio.playOnAwake    = false;
+            }
+
+            // Auto-find bank if not already set
+            if (AudioBank == null)
+                AudioBank = Resources.Load<WeaponAudioBank>("WeaponAudioBank");
         }
 
         /// <summary>Bulk-configure all parameters at once (called by EnemyAI.ApplyVariant).</summary>
@@ -182,8 +200,15 @@ namespace FreeWorld.Enemy
 
         private void PlayGunshot()
         {
-            if (_audio != null && ShootAudioClip != null)
-                _audio.PlayOneShot(ShootAudioClip);
+            if (_audio == null) return;
+
+            // Priority: bank random pick → single ShootAudioClip field → procedural
+            var pick = WeaponAudioBank.Pick(AudioBank?.EnemyShoot);
+            if (pick != null) { _audio.PlayOneShot(pick); return; }
+
+            if (ShootAudioClip != null) { _audio.PlayOneShot(ShootAudioClip); return; }
+
+            ProceduralAudioLibrary.Play(_audio, ProceduralAudioLibrary.ClipGunshot, 0.85f);
         }
     }
 }

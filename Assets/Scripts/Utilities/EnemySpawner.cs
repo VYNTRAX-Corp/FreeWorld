@@ -64,9 +64,20 @@ namespace FreeWorld.Utilities
 
         private System.Collections.IEnumerator SpawnWave(int count, int round)
         {
+            // Build a shuffled index list so no spawn point is reused until all are exhausted
+            var indices = new System.Collections.Generic.List<int>();
+            for (int i = 0; i < count; i++)
+                indices.Add(i % spawnPoints.Length);
+            // Fisher-Yates shuffle
+            for (int i = indices.Count - 1; i > 0; i--)
+            {
+                int j   = Random.Range(0, i + 1);
+                int tmp = indices[i]; indices[i] = indices[j]; indices[j] = tmp;
+            }
+
             for (int i = 0; i < count; i++)
             {
-                SpawnEnemy(round);
+                SpawnEnemy(round, indices[i]);
                 yield return new WaitForSeconds(spawnInterval);
             }
             // Notify GameManager that all enemies for this wave have been spawned
@@ -76,6 +87,8 @@ namespace FreeWorld.Utilities
         private EnemyVariant ChooseVariant(int round)
         {
             float r = Random.value;
+            if (round == 3)
+                return EnemyVariant.OriginalSkin;  // full SWAT skin, no tint
             if (round >= 7)
             {
                 // 50% Grunt, 25% Heavy, 25% Scout
@@ -91,12 +104,12 @@ namespace FreeWorld.Utilities
             return EnemyVariant.Grunt;
         }
 
-        private void SpawnEnemy(int round)
+        private void SpawnEnemy(int round, int spawnIndex = -1)
         {
             if (enemyPrefab == null)
             {
                 Debug.LogError("[EnemySpawner] enemyPrefab is null — assign it in the Inspector!");
-                Managers.GameManager.Instance?.RegisterEnemySpawn(); // so counts don't desync
+                Managers.GameManager.Instance?.RegisterEnemySpawn();
                 return;
             }
             if (spawnPoints == null || spawnPoints.Length == 0)
@@ -104,11 +117,16 @@ namespace FreeWorld.Utilities
                 Debug.LogError("[EnemySpawner] No spawn points!");
                 return;
             }
-            Transform sp = spawnPoints[Random.Range(0, spawnPoints.Length)];
-            var go       = Instantiate(enemyPrefab, sp.position, sp.rotation);
+            int idx = (spawnIndex >= 0 && spawnIndex < spawnPoints.Length)
+                ? spawnIndex
+                : Random.Range(0, spawnPoints.Length);
+            Transform sp = spawnPoints[idx];
+            // Small random offset so enemies don't stack if wave has more enemies than spawn points
+            Vector3 offset = new Vector3(Random.Range(-0.8f, 0.8f), 0f, Random.Range(-0.8f, 0.8f));
+            var go = Instantiate(enemyPrefab, sp.position + offset, sp.rotation);
             go.GetComponent<Enemy.EnemyAI>()?.SetVariant(ChooseVariant(round));
             Managers.GameManager.Instance?.RegisterEnemySpawn();
-            Debug.Log($"[EnemySpawner] Spawned enemy {round} variant={ChooseVariant(round)}");
+            Debug.Log($"[EnemySpawner] Spawned enemy round={round} spawnPoint={idx} variant={ChooseVariant(round)}");
         }
     }
 }
