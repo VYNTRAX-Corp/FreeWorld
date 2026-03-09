@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using FreeWorld.Utilities;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -110,6 +111,10 @@ namespace FreeWorld.Managers
             EnemiesRemaining   = 0;
             _waveSpawnComplete = false;
             OnRoundChanged?.Invoke(CurrentRound, totalRounds);
+
+            // Auditory round announcement
+            ProceduralAudioLibrary.PlayAt(
+                ProceduralAudioLibrary.ClipRoundStart, Vector3.zero, 0.7f);
         }
 
         private void EndRound(bool playerWon)

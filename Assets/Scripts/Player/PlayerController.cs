@@ -130,7 +130,7 @@ namespace FreeWorld.Player
         // ── Footsteps ─────────────────────────────────────────────────────────
         private void HandleFootsteps()
         {
-            if (!_isGrounded || CurrentSpeed < 0.1f || footstepClips == null || footstepClips.Length == 0)
+            if (!_isGrounded || CurrentSpeed < 0.1f)
             {
                 _stepTimer = 0f;
                 return;
@@ -144,8 +144,15 @@ namespace FreeWorld.Player
             if (_stepTimer >= interval)
             {
                 _stepTimer = 0f;
-                AudioClip clip = footstepClips[Random.Range(0, footstepClips.Length)];
-                _footstepAudio.PlayOneShot(clip, footstepVolume);
+
+                // Use assigned clips if available, otherwise fall back to procedural
+                if (footstepClips != null && footstepClips.Length > 0)
+                    _footstepAudio.PlayOneShot(
+                        footstepClips[Random.Range(0, footstepClips.Length)], footstepVolume);
+                else
+                    Utilities.ProceduralAudioLibrary.Play(
+                        _footstepAudio, Utilities.ProceduralAudioLibrary.ClipFootstep,
+                        footstepVolume * (IsSprinting ? 1f : 0.7f));
             }
         }
     }

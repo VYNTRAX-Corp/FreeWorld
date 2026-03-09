@@ -1,4 +1,6 @@
 using System.Collections;
+using System.Collections.Generic;
+using FreeWorld.Utilities;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
@@ -43,7 +45,12 @@ namespace FreeWorld.Managers
         [SerializeField] private TextMeshProUGUI scoreText;
         [SerializeField] private TextMeshProUGUI roundText;
         [SerializeField] private TextMeshProUGUI timerText;
-        [SerializeField] private TextMeshProUGUI killCountText;        [SerializeField] private TextMeshProUGUI enemiesText;
+        [SerializeField] private TextMeshProUGUI killCountText;
+        [SerializeField] private TextMeshProUGUI enemiesText;
+
+        // ── Grenade counter ───────────────────────────────────────────────
+        [Header("Grenades")]
+        [SerializeField] private TextMeshProUGUI grenadeCountText;
         // ── Kill Feed ─────────────────────────────────────────────────────────
         [Header("Kill Feed")]
         [SerializeField] private Transform       killFeedContainer;
@@ -69,6 +76,33 @@ namespace FreeWorld.Managers
         private float _currentSpread;
         private GameState _lastKnownState = (GameState)(-1); // invalid sentinel
         private int   _lastAmmo = -1;
+
+        // ── Damage Direction Indicators ───────────────────────────────────────
+        private const int   _maxArrows     = 4;
+        private const float _arrowLifetime = 1.5f;
+        private const float _arrowRadius   = 160f;   // px from screen center
+
+        private class DamageArrow
+        {
+            public Image          img;
+            public RectTransform  rt;
+            public float          timer;
+        }
+
+        private readonly List<DamageArrow> _damageArrows = new List<DamageArrow>();
+        private Camera _playerCamera;
+
+        // ── Weapon Carousel ────────────────────────────────────────────────────
+        private class WeaponSlotUI
+        {
+            public RectTransform        root;
+            public Image                bg;
+            public Image                border;
+            public List<Image>          iconParts = new List<Image>();
+            public TextMeshProUGUI      label;
+            public Weapons.WeaponBase   weapon;   // live reference — always current
+        }
+        private readonly List<WeaponSlotUI> _weaponSlots = new List<WeaponSlotUI>();
 
         // ── Singleton ─────────────────────────────────────────────────────────
         public static UIManager Instance { get; private set; }
@@ -283,6 +317,7 @@ namespace FreeWorld.Managers
                 ph.OnHealthChanged += UpdateHealth;
                 ph.OnArmorChanged  += UpdateArmor;
                 ph.OnDamaged       += ShowDamageFlash;
+                ph.OnDamagedFrom   += ShowDamageIndicator;
                 UpdateHealth(ph.CurrentHealth, 100f);
             }
 
@@ -340,6 +375,7 @@ namespace FreeWorld.Managers
 
             TickHitMarker();
             TickDamageFlash();
+            TickDamageIndicators();
             TickCrosshair();
         }
 
@@ -378,6 +414,31 @@ namespace FreeWorld.Managers
         public void UpdateWeaponName(string name)
         {
             if (weaponNameText != null) weaponNameText.text = name.ToUpper();
+        }
+
+        // ── Grenades ──────────────────────────────────────────────────────
+        public void ShowGrenadeCount(int count)
+        {
+            // Auto-create the label if it wasn’t wired in the Inspector
+            if (grenadeCountText == null)
+            {
+                var go = new GameObject("GrenadeCountText");
+                go.transform.SetParent(transform, false);
+                grenadeCountText = go.AddComponent<TextMeshProUGUI>();
+                ApplyHUDStyle(grenadeCountText, 26f, new Color(0.55f, 1f, 0.40f));
+                var rt = grenadeCountText.rectTransform;
+                rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(1f, 0f);
+                rt.anchoredPosition = new Vector2(-24f, 148f);
+                rt.sizeDelta        = new Vector2(200f, 36f);
+                grenadeCountText.alignment = TextAlignmentOptions.Right;
+            }
+
+            grenadeCountText.text  = count > 0
+                ? $"[G]  {count}"
+                : "[G]  <color=#555>0</color>";
+            grenadeCountText.color = count > 0
+                ? new Color(0.55f, 1f, 0.40f)
+                : new Color(0.45f, 0.45f, 0.45f);
         }
 
         // ── Score / Round ─────────────────────────────────────────────────────
@@ -425,6 +486,11 @@ namespace FreeWorld.Managers
             if (hitMarker == null) return;
             hitMarker.enabled = true;
             _hitMarkerTimer   = hitMarkerDuration;
+
+            // Auditory hit confirmation
+            ProceduralAudioLibrary.PlayAt(
+                ProceduralAudioLibrary.ClipHitMarker,
+                Camera.main != null ? Camera.main.transform.position : Vector3.zero, 0.4f);
         }
 
         private void TickHitMarker()
@@ -433,6 +499,98 @@ namespace FreeWorld.Managers
             _hitMarkerTimer -= Time.deltaTime;
             if (_hitMarkerTimer <= 0f)
                 hitMarker.enabled = false;
+        }
+
+        // ── Directional Damage Indicator ──────────────────────────────────────
+        public void ShowDamageIndicator(Vector3 hitWorldDir)
+        {
+            // Lazily cache the player camera
+            if (_playerCamera == null)
+                _playerCamera = Camera.main;
+            if (_playerCamera == null) return;
+
+            // Project both vectors onto XZ plane to get a 2-D compass angle
+            Vector3 camFwd   = _playerCamera.transform.forward;
+            camFwd.y         = 0f;
+            Vector3 fromDir  = hitWorldDir;
+            fromDir.y        = 0f;
+
+            // Defend against zero-length vectors (overhead / underfoot shots)
+            if (camFwd.sqrMagnitude < 0.001f || fromDir.sqrMagnitude < 0.001f) return;
+
+            camFwd.Normalize();
+            fromDir.Normalize();
+
+            // Angle (degrees, clockwise from top of screen = 0)
+            float dot   = Vector3.Dot(camFwd, fromDir);
+            float cross = camFwd.x * fromDir.z - camFwd.z * fromDir.x;
+            float angle = Mathf.Atan2(-cross, -dot) * Mathf.Rad2Deg;  // negate: indicator points AT source
+
+            // Reuse oldest or grab a free slot
+            DamageArrow arrow = null;
+            foreach (var a in _damageArrows)
+                if (a.timer <= 0f) { arrow = a; break; }
+
+            if (arrow == null)
+            {
+                if (_damageArrows.Count < _maxArrows)
+                {
+                    arrow = CreateArrow();
+                    _damageArrows.Add(arrow);
+                }
+                else
+                {
+                    // Reuse the one with least time remaining
+                    arrow = _damageArrows[0];
+                    for (int i = 1; i < _damageArrows.Count; i++)
+                        if (_damageArrows[i].timer < arrow.timer)
+                            arrow = _damageArrows[i];
+                }
+            }
+
+            // Position arrow on a circle around screen center, rotated to angle
+            float rad  = angle * Mathf.Deg2Rad;
+            float px   = Mathf.Sin(rad) * _arrowRadius;
+            float py   = Mathf.Cos(rad) * _arrowRadius;
+            arrow.rt.anchoredPosition = new Vector2(px, py);
+            arrow.rt.localEulerAngles = new Vector3(0f, 0f, -angle);
+            arrow.timer               = _arrowLifetime;
+            arrow.img.enabled         = true;
+        }
+
+        private DamageArrow CreateArrow()
+        {
+            // Find or create a Canvas parent
+            Canvas canvas = GetComponent<Canvas>() ?? FindObjectOfType<Canvas>();
+            if (canvas == null) return null;
+
+            var go = new GameObject("DmgArrow");
+            go.transform.SetParent(canvas.transform, false);
+
+            // AddComponent<Image> implicitly creates the RectTransform; fetch it after.
+            var img         = go.AddComponent<Image>();
+            img.color       = new Color(1f, 0.15f, 0.10f, 0.85f);
+            img.raycastTarget = false;
+
+            var rt          = go.GetComponent<RectTransform>();
+            rt.anchorMin    = new Vector2(0.5f, 0.5f);
+            rt.anchorMax    = new Vector2(0.5f, 0.5f);
+            rt.pivot        = new Vector2(0.5f, 0f);   // pivot at bottom = points inward
+            rt.sizeDelta    = new Vector2(18f, 42f);   // narrow rectangle
+
+            return new DamageArrow { img = img, rt = rt, timer = 0f };
+        }
+
+        private void TickDamageIndicators()
+        {
+            foreach (var arrow in _damageArrows)
+            {
+                if (arrow.timer <= 0f) continue;
+                arrow.timer -= Time.deltaTime;
+                float alpha = Mathf.Clamp01(arrow.timer / _arrowLifetime) * 0.85f;
+                arrow.img.color = new Color(1f, 0.15f, 0.10f, alpha);
+                if (arrow.timer <= 0f) arrow.img.enabled = false;
+            }
         }
 
         // ── Damage Flash ──────────────────────────────────────────────────────
@@ -557,6 +715,192 @@ namespace FreeWorld.Managers
         public void AddKillFeedEntry(string killerName, string victimName, string weaponName)
             => ShowKillFeedEntry(victimName, 0);
 
+        // ── Weapon Carousel ────────────────────────────────────────────────────
+        public void BuildWeaponCarousel(Weapons.WeaponBase[] weapons)
+        {
+            foreach (var s in _weaponSlots)
+                if (s.root != null) Destroy(s.root.gameObject);
+            _weaponSlots.Clear();
+
+            Canvas canvas = GetComponent<Canvas>() ?? FindObjectOfType<Canvas>();
+            if (canvas == null) return;
+
+            const float slotW   = 72f;
+            const float slotH   = 75f;
+            const float spacing = 80f;
+            float startX = -((weapons.Length - 1) * spacing) / 2f;
+
+            for (int i = 0; i < weapons.Length; i++)
+            {
+                var wb = weapons[i];
+
+                // ─ Slot root ─
+                var slotGO = new GameObject("WSlot_" + i, typeof(RectTransform));
+                slotGO.transform.SetParent(canvas.transform, false);
+                var rt             = (RectTransform)slotGO.transform;
+                rt.anchorMin       = rt.anchorMax = new Vector2(0.5f, 0f);
+                rt.pivot           = new Vector2(0.5f, 0f);
+                rt.sizeDelta       = new Vector2(slotW, slotH);
+                rt.anchoredPosition = new Vector2(startX + i * spacing, 10f);
+
+                var bg             = slotGO.AddComponent<Image>();
+                bg.color           = new Color(0f, 0f, 0f, 0.5f);
+                bg.raycastTarget   = false;
+
+                // ─ Border ─
+                var borderGO = new GameObject("Border", typeof(RectTransform));
+                borderGO.transform.SetParent(slotGO.transform, false);
+                var brt      = (RectTransform)borderGO.transform;
+                brt.anchorMin = Vector2.zero; brt.anchorMax = Vector2.one;
+                brt.offsetMin = new Vector2(2f, 2f); brt.offsetMax = new Vector2(-2f, -2f);
+                var border   = borderGO.AddComponent<Image>();
+                border.color = Color.clear;
+                border.raycastTarget = false;
+
+                // ─ Gun icon ─
+                var iconContainer = new GameObject("GunIcon", typeof(RectTransform));
+                iconContainer.transform.SetParent(slotGO.transform, false);
+                var icRT         = (RectTransform)iconContainer.transform;
+                icRT.anchorMin   = icRT.anchorMax = new Vector2(0.5f, 0.72f);
+                icRT.sizeDelta   = new Vector2(52f, 24f);
+                icRT.anchoredPosition = Vector2.zero;
+
+                var iconParts = new List<Image>();
+                var wt        = wb != null ? wb.weaponType : Weapons.WeaponType.Rifle;
+                BuildGunIconParts(iconContainer.transform, wt, Color.white, iconParts);
+
+                // ─ Key number ─
+                var numGO    = new GameObject("Num", typeof(RectTransform));
+                numGO.transform.SetParent(slotGO.transform, false);
+                var nrt      = (RectTransform)numGO.transform;
+                nrt.anchorMin = new Vector2(0f, 0f); nrt.anchorMax = new Vector2(0.4f, 0.28f);
+                nrt.offsetMin = nrt.offsetMax = Vector2.zero;
+                var numTMP   = numGO.AddComponent<TextMeshProUGUI>();
+                numTMP.text  = (i + 1).ToString();
+                numTMP.fontSize   = 11f;
+                numTMP.alignment  = TextAlignmentOptions.Center;
+                numTMP.color      = new Color(1f, 1f, 1f, 0.45f);
+                numTMP.raycastTarget = false;
+
+                // ─ Weapon name ─
+                var nameGO   = new GameObject("WName", typeof(RectTransform));
+                nameGO.transform.SetParent(slotGO.transform, false);
+                var lrt      = (RectTransform)nameGO.transform;
+                lrt.anchorMin = new Vector2(0f, 0f); lrt.anchorMax = new Vector2(1f, 0.28f);
+                lrt.offsetMin = lrt.offsetMax = Vector2.zero;
+                var label    = nameGO.AddComponent<TextMeshProUGUI>();
+                label.text   = wb != null ? wb.weaponName : "---";
+                label.fontSize    = 9f;
+                label.alignment   = TextAlignmentOptions.Right;
+                label.color       = new Color(1f, 1f, 1f, 0.45f);
+                label.margin      = new Vector4(0f, 0f, 4f, 0f);
+                label.raycastTarget = false;
+
+                _weaponSlots.Add(new WeaponSlotUI
+                {
+                    root = rt, bg = bg, border = border,
+                    iconParts = iconParts, label = label, weapon = wb
+                });
+            }
+
+            UpdateWeaponCarousel(0);
+        }
+
+        private void BuildGunIconParts(Transform parent, Weapons.WeaponType wt,
+                                        Color color, List<Image> parts)
+        {
+            // Each part: (name, cx, cy, w, h) — all in pixels relative to icon container centre
+            (string n, float x, float y, float w, float h)[] pieces;
+
+            switch (wt)
+            {
+                case Weapons.WeaponType.Pistol:
+                    pieces = new[]
+                    {
+                        ("slide",  8f,   4f,  24f,  8f),   // slide / barrel top
+                        ("frame", -2f,  -2f,  16f, 10f),   // frame
+                        ("grip",  -8f, -10f,   7f, 12f),   // grip
+                    };
+                    break;
+                case Weapons.WeaponType.Shotgun:
+                    pieces = new[]
+                    {
+                        ("barrel",  14f,  6f, 26f, 8f),   // fat barrel
+                        ("recv",   -4f,   0f, 22f, 14f),  // thick receiver
+                        ("pump",    8f,  -4f, 14f,  5f),  // pump under barrel
+                        ("stock", -18f,   0f, 12f,  8f),  // stock
+                    };
+                    break;
+                default: // Rifle / Sniper
+                    pieces = new[]
+                    {
+                        ("barrel",  16f,  7f, 28f,  4f),  // long thin barrel
+                        ("recv",   -2f,   1f, 22f, 12f),  // receiver
+                        ("mag",     0f,  -8f,  6f, 11f),  // magazine
+                        ("stock", -18f,   1f, 12f,  8f),  // stock
+                    };
+                    break;
+            }
+
+            foreach (var (n, cx, cy, w, h) in pieces)
+            {
+                var go    = new GameObject(n, typeof(RectTransform));
+                go.transform.SetParent(parent, false);
+                var prt   = (RectTransform)go.transform;
+                prt.anchorMin  = prt.anchorMax = prt.pivot = new Vector2(0.5f, 0.5f);
+                prt.anchoredPosition = new Vector2(cx, cy);
+                prt.sizeDelta  = new Vector2(w, h);
+                var img   = go.AddComponent<Image>();
+                img.color = color;
+                img.raycastTarget = false;
+                parts.Add(img);
+            }
+        }
+
+        public void UpdateWeaponCarousel(int activeIndex)
+        {
+            for (int i = 0; i < _weaponSlots.Count; i++)
+            {
+                var s      = _weaponSlots[i];
+                bool active = i == activeIndex;
+
+                // Re-derive color and name from the live weapon reference every time
+                var wt  = s.weapon != null ? s.weapon.weaponType : Weapons.WeaponType.Rifle;
+                var wc  = WeaponTypeColor(wt);
+                var wn  = s.weapon != null ? s.weapon.weaponName : "---";
+
+                if (s.bg     != null) s.bg.color     = active
+                    ? new Color(0.10f, 0.10f, 0.10f, 0.90f)
+                    : new Color(0f,    0f,    0f,    0.40f);
+
+                if (s.border != null) s.border.color = active
+                    ? new Color(wc.r, wc.g, wc.b, 0.90f)
+                    : Color.clear;
+
+                float partAlpha  = active ? 1.00f : 0.22f;
+                Color partColor  = new Color(wc.r, wc.g, wc.b, partAlpha);
+                foreach (var img in s.iconParts)
+                    if (img != null) img.color = partColor;
+
+                if (s.label != null)
+                {
+                    s.label.text  = wn;
+                    s.label.color = new Color(1f, 1f, 1f, active ? 0.92f : 0.30f);
+                }
+            }
+        }
+
+        private static Color WeaponTypeColor(Weapons.WeaponType wt)
+        {
+            switch (wt)
+            {
+                case Weapons.WeaponType.Pistol:  return new Color(0.33f, 0.60f, 1.00f);
+                case Weapons.WeaponType.Shotgun: return new Color(1.00f, 0.58f, 0.18f);
+                case Weapons.WeaponType.Sniper:  return new Color(0.60f, 0.30f, 1.00f);
+                default:                         return new Color(0.28f, 0.85f, 0.42f);
+            }
+        }
+
         // ── Screen management ─────────────────────────────────────────────────
         /// <summary>Called by Resume button. Hides the pause screen and restores play state.</summary>
         public void Resume()
@@ -579,6 +923,16 @@ namespace FreeWorld.Managers
                 rt.anchoredPosition = new Vector2(-24f, 78f);
                 rt.sizeDelta        = new Vector2(320f, 68f);
                 ammoText.alignment  = TextAlignmentOptions.Right;
+            }
+            // ── Grenade counter (just above ammo) ──────────────────────────
+            ApplyHUDStyle(grenadeCountText, 26f, new Color(0.55f, 1f, 0.40f));
+            if (grenadeCountText != null)
+            {
+                var rt = grenadeCountText.rectTransform;
+                rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(1f, 0f);
+                rt.anchoredPosition = new Vector2(-24f, 148f);
+                rt.sizeDelta        = new Vector2(200f, 36f);
+                grenadeCountText.alignment = TextAlignmentOptions.Right;
             }
             ApplyHUDStyle(weaponNameText, 16f, new Color(0.55f, 0.85f, 1f));
             if (weaponNameText != null)

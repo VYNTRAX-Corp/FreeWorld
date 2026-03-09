@@ -17,6 +17,13 @@ namespace FreeWorld.Utilities
         [SerializeField] private float      rotateSpeed = 90f;
         [SerializeField] private AudioClip  pickupSound;
 
+        /// <summary>Configure pickup type and amount at runtime (used by procedural loot drops).</summary>
+        public void Configure(PickupType type, float pickupAmount)
+        {
+            pickupType = type;
+            amount     = pickupAmount;
+        }
+
         private Vector3 _startPos;
 
         private void Awake() => _startPos = transform.position;
@@ -49,6 +56,8 @@ namespace FreeWorld.Utilities
 
             if (pickupSound != null)
                 AudioSource.PlayClipAtPoint(pickupSound, transform.position);
+            else
+                ProceduralAudioLibrary.PlayAt(ProceduralAudioLibrary.ClipPickup, transform.position);
 
             Destroy(gameObject);
         }

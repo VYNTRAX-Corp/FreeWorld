@@ -83,6 +83,12 @@ namespace FreeWorld.Weapons
 
         private AudioSource _audio;
 
+        // ── Viewmodel ─────────────────────────────────────────────────────────
+        private Transform _viewmodelRoot;
+        private bool      _viewmodelBuilt;
+        private float     _viewBobTimer;
+        private float     _kickZ;
+
         // ─────────────────────────────────────────────────────────────────────
         protected virtual void Awake()
         {
@@ -100,6 +106,9 @@ namespace FreeWorld.Weapons
 
             if (fpsCam == null)
                 fpsCam = Camera.main;
+
+            // Fill in any missing AudioClips with synthesised fallbacks
+            AssignFallbackClips();
         }
 
         protected virtual void Update()
@@ -111,6 +120,7 @@ namespace FreeWorld.Weapons
             HandleADS();
             HandleShootInput();
             HandleReloadInput();
+            TickViewmodel();
         }
 
         // ── Input ─────────────────────────────────────────────────────────────
@@ -165,6 +175,7 @@ namespace FreeWorld.Weapons
             // Camera recoil
             Player.PlayerCamera cam = fpsCam.GetComponent<Player.PlayerCamera>();
             cam?.ApplyRecoil(recoilVertical, recoilHorizontal);
+            _kickZ = 0.05f;
 
             // Burst mode tracking
             if (fireMode == FireMode.Burst)
@@ -266,21 +277,40 @@ namespace FreeWorld.Weapons
                 PlayProceduralShot();  // fallback click so shooting feels responsive
         }
 
-        // Generates a quick synthetic gunshot when no AudioClip is assigned
+        // Use the cached ProceduralAudioLibrary instead of allocating a new clip each shot
         private void PlayProceduralShot()
         {
+            ProceduralAudioLibrary.Play(_audio,
+                weaponType == WeaponType.Shotgun
+                    ? ProceduralAudioLibrary.ClipShotgunBlast
+                    : ProceduralAudioLibrary.ClipGunshot, 0.9f);
+        }
+
+        // Suppress warnings — kept for potential subclass override
+        [System.Obsolete("Use PlayProceduralShot() — kept for API compatibility")]
+        private void _unused_OldSynthShot()
+        {
             int sampleRate = AudioSettings.outputSampleRate;
-            int samples    = sampleRate / 10;   // 100ms burst
+            int samples    = sampleRate / 10;
             float[] data   = new float[samples];
             for (int i = 0; i < samples; i++)
             {
                 float t    = (float)i / sampleRate;
-                float env  = Mathf.Exp(-t * 40f);           // fast decay
-                data[i]    = env * (UnityEngine.Random.value * 2f - 1f); // white noise
+                float env  = Mathf.Exp(-t * 40f);
+                data[i]    = env * (UnityEngine.Random.value * 2f - 1f);
             }
             AudioClip tmp = AudioClip.Create("shot", samples, 1, sampleRate, false);
             tmp.SetData(data, 0);
             _audio.PlayOneShot(tmp, 0.6f);
+        }
+
+        // ── Procedural fallbacks in Awake ─────────────────────────────────────
+        // Assign library clips so every weapon sounds alive even without AudioClip assets
+        private void AssignFallbackClips()
+        {
+            if (shootSound  == null) shootSound  = ProceduralAudioLibrary.ClipGunshot;
+            if (reloadSound == null) reloadSound = ProceduralAudioLibrary.ClipReload;
+            if (emptySound  == null) emptySound  = ProceduralAudioLibrary.ClipEmpty;
         }
 
         /// <summary>Adds ammo to reserve (called by ammo pickups).</summary>
@@ -290,10 +320,34 @@ namespace FreeWorld.Weapons
             OnAmmoChanged?.Invoke(CurrentAmmo, ReserveAmmo);
         }
 
+        /// <summary>Set weapon stats at runtime (used by WeaponManager auto-loadout).</summary>
+        public void ApplyRuntimeStats(WeaponType wt, FireMode fm, float dmg, float fireRt,
+                                       int mag, int res, float reload, Camera cam)
+        {
+            weaponType     = wt;
+            fireMode       = fm;
+            damage         = dmg;
+            fireRate       = fireRt;
+            magazineSize   = mag;
+            maxReserveAmmo = res;
+            reloadTime     = reload;
+            fpsCam         = cam;
+            _fireInterval  = 60f / fireRate;
+            CurrentAmmo    = magazineSize;
+            ReserveAmmo    = maxReserveAmmo;
+            AssignFallbackClips();
+        }
+
         /// <summary>Called by WeaponManager when the weapon is drawn/holstered.</summary>
         public virtual void OnEquip()
         {
             gameObject.SetActive(true);
+            if (!_viewmodelBuilt)
+            {
+                BuildViewmodel();
+                _viewmodelBuilt = true;
+            }
+            if (_viewmodelRoot != null) _viewmodelRoot.gameObject.SetActive(true);
             PlaySound(drawSound);
         }
 
@@ -301,7 +355,155 @@ namespace FreeWorld.Weapons
         {
             if (IsReloading)
                 StopAllCoroutines();
+            if (_viewmodelRoot != null) _viewmodelRoot.gameObject.SetActive(false);
             gameObject.SetActive(false);
+        }
+
+        // ── Procedural first-person viewmodel ─────────────────────────────────
+        private void BuildViewmodel()
+        {
+            if (fpsCam == null) return;
+
+            // Hide any placeholder mesh on the weapon GO itself — all visuals live in the viewmodel
+            foreach (var mr in GetComponentsInChildren<MeshRenderer>())
+                mr.enabled = false;
+
+            var root = new GameObject("VM_" + weaponName).transform;
+            root.SetParent(fpsCam.transform, false);
+            root.localPosition = new Vector3(0.22f, -0.22f, 0.45f);
+            root.localRotation = Quaternion.identity;
+            _viewmodelRoot = root;
+
+            Color skin = new Color(0.78f, 0.64f, 0.54f);
+
+            // Arm cylinder
+            MakeVMPart("VM_Arm", PrimitiveType.Cylinder, root,
+                new Vector3(0f, -0.22f, 0.04f),
+                Quaternion.Euler(15f, 0f, 0f),
+                new Vector3(0.065f, 0.19f, 0.065f), skin);
+
+            // Hand
+            MakeVMPart("VM_Hand", PrimitiveType.Cube, root,
+                new Vector3(0f, -0.04f, 0.02f),
+                Quaternion.identity,
+                new Vector3(0.09f, 0.07f, 0.13f), skin);
+
+            switch (weaponType)
+            {
+                case WeaponType.Pistol:  BuildPistolShape(root);  break;
+                case WeaponType.Shotgun: BuildShotgunShape(root); break;
+                default:                 BuildRifleShape(root);   break;
+            }
+
+            root.gameObject.SetActive(false);
+        }
+
+        private void BuildRifleShape(Transform root)
+        {
+            Color metal = new Color(0.19f, 0.19f, 0.21f);
+            Color wood  = new Color(0.36f, 0.22f, 0.11f);
+
+            MakeVMPart("VM_Receiver", PrimitiveType.Cube, root,
+                new Vector3(0f, 0.01f, 0.13f), Quaternion.identity,
+                new Vector3(0.058f, 0.068f, 0.30f), metal);
+
+            MakeVMPart("VM_Barrel", PrimitiveType.Cylinder, root,
+                new Vector3(0f, 0.024f, 0.34f), Quaternion.Euler(90f, 0f, 0f),
+                new Vector3(0.021f, 0.16f, 0.021f), metal);
+
+            MakeVMPart("VM_Magazine", PrimitiveType.Cube, root,
+                new Vector3(0f, -0.065f, 0.10f), Quaternion.Euler(-14f, 0f, 0f),
+                new Vector3(0.040f, 0.11f, 0.036f), metal);
+
+            MakeVMPart("VM_Stock", PrimitiveType.Cube, root,
+                new Vector3(0f, -0.01f, -0.05f), Quaternion.Euler(5f, 0f, 0f),
+                new Vector3(0.05f, 0.06f, 0.13f), wood);
+        }
+
+        private void BuildPistolShape(Transform root)
+        {
+            Color metal = new Color(0.18f, 0.18f, 0.20f);
+            Color grip  = new Color(0.11f, 0.09f, 0.09f);
+
+            MakeVMPart("VM_Slide", PrimitiveType.Cube, root,
+                new Vector3(0f, 0.022f, 0.09f), Quaternion.identity,
+                new Vector3(0.048f, 0.058f, 0.18f), metal);
+
+            MakeVMPart("VM_Barrel", PrimitiveType.Cylinder, root,
+                new Vector3(0f, 0.030f, 0.21f), Quaternion.Euler(90f, 0f, 0f),
+                new Vector3(0.018f, 0.074f, 0.018f), metal);
+
+            MakeVMPart("VM_Grip", PrimitiveType.Cube, root,
+                new Vector3(0f, -0.08f, 0.04f), Quaternion.Euler(-10f, 0f, 0f),
+                new Vector3(0.044f, 0.10f, 0.05f), grip);
+        }
+
+        private void BuildShotgunShape(Transform root)
+        {
+            Color metal = new Color(0.22f, 0.22f, 0.24f);
+            Color wood  = new Color(0.30f, 0.18f, 0.08f);
+
+            MakeVMPart("VM_Receiver", PrimitiveType.Cube, root,
+                new Vector3(0f, 0.01f, 0.11f), Quaternion.identity,
+                new Vector3(0.072f, 0.074f, 0.28f), metal);
+
+            MakeVMPart("VM_Barrel", PrimitiveType.Cylinder, root,
+                new Vector3(0f, 0.036f, 0.32f), Quaternion.Euler(90f, 0f, 0f),
+                new Vector3(0.030f, 0.18f, 0.030f), metal);
+
+            MakeVMPart("VM_Pump", PrimitiveType.Cube, root,
+                new Vector3(0f, 0.018f, 0.22f), Quaternion.identity,
+                new Vector3(0.066f, 0.052f, 0.082f), wood);
+
+            MakeVMPart("VM_Stock", PrimitiveType.Cube, root,
+                new Vector3(0f, -0.022f, -0.06f), Quaternion.Euler(4f, 0f, 0f),
+                new Vector3(0.062f, 0.065f, 0.18f), wood);
+        }
+
+        private void MakeVMPart(string partName, PrimitiveType prim, Transform parent,
+                                 Vector3 localPos, Quaternion localRot, Vector3 scale, Color color)
+        {
+            var go = GameObject.CreatePrimitive(prim);
+            go.name = partName;
+            go.transform.SetParent(parent, false);
+            go.transform.localPosition = localPos;
+            go.transform.localRotation = localRot;
+            go.transform.localScale    = scale;
+
+            Destroy(go.GetComponent<Collider>());
+
+            var mr = go.GetComponent<MeshRenderer>();
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            mr.receiveShadows    = false;
+
+            var mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", color);
+            mr.sharedMaterial = mat;
+        }
+
+        private void TickViewmodel()
+        {
+            if (_viewmodelRoot == null) return;
+
+            _viewBobTimer += Time.deltaTime;
+
+            // Scale bob by movement input for a natural feel
+            float move   = new Vector2(Input.GetAxisRaw("Horizontal"),
+                                       Input.GetAxisRaw("Vertical")).magnitude;
+            float bobAmp = move * 0.005f + 0.0015f;
+            float bobY   = Mathf.Sin(_viewBobTimer * 7.0f) * bobAmp;
+            float bobX   = Mathf.Sin(_viewBobTimer * 3.5f) * bobAmp * 0.5f;
+
+            // Kick: spring back to rest
+            _kickZ = Mathf.Lerp(_kickZ, 0f, 14f * Time.deltaTime);
+
+            // ADS: bring weapon to centre and slightly closer
+            Vector3 hipPos = new Vector3(0.22f, -0.22f, 0.45f);
+            Vector3 adsPos = new Vector3(0.00f, -0.16f, 0.38f);
+            Vector3 target = Vector3.Lerp(hipPos, adsPos, IsADS ? 1f : 0f);
+            target = Vector3.Lerp(_viewmodelRoot.localPosition, target, adsSpeed * Time.deltaTime);
+
+            _viewmodelRoot.localPosition = target + new Vector3(bobX, bobY, -_kickZ);
         }
     }
 }

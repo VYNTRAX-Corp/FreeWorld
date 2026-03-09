@@ -63,6 +63,7 @@ namespace FreeWorld.Enemy
         private float   _searchTimer;
         private float   _reactionTimer;   // delay before first shot on entering Attack
         private float   _coverTimer;
+        private float   _footstepTimer;
 
         /// <summary>Read by EnemyProceduralAnimator to select the right animation.</summary>
         public EnemyState CurrentState => _state;
@@ -162,6 +163,8 @@ namespace FreeWorld.Enemy
                 case EnemyState.Flank:       UpdateFlank();       break;
                 case EnemyState.TakingCover: UpdateTakingCover(); break;
             }
+
+            TickFootsteps();
         }
 
         // ── States ────────────────────────────────────────────────────────────
@@ -282,7 +285,7 @@ namespace FreeWorld.Enemy
                 case EnemyState.Chase:
                     _agent.speed = chaseSpeed * (adapt?.ChaseSpeedMult ?? 1f);
                     _flankTimer  = adapt?.FlankInterval ?? 12f;
-                    PlaySound(alertSound);
+                    PlayAlertSound();
                     break;
                 case EnemyState.Attack:
                     _agent.isStopped = true;
@@ -334,6 +337,37 @@ namespace FreeWorld.Enemy
         {
             if (clip != null && _audio != null)
                 _audio.PlayOneShot(clip);
+        }
+
+        private void PlayAlertSound()
+        {
+            if (_audio == null) return;
+            if (alertSound != null)
+                _audio.PlayOneShot(alertSound);
+            else
+                Utilities.ProceduralAudioLibrary.Play(
+                    _audio, Utilities.ProceduralAudioLibrary.ClipEnemyAlert, 0.65f);
+        }
+
+        private void TickFootsteps()
+        {
+            if (_audio == null) return;
+
+            float speed = _agent.velocity.magnitude;
+            if (speed < 0.4f) return;   // standing still — no footsteps
+
+            // Interval: slower patrol cadence, faster chase cadence
+            float interval = (_state == EnemyState.Patrol || _state == EnemyState.Investigate)
+                             ? 0.52f : 0.32f;
+
+            _footstepTimer -= Time.deltaTime;
+            if (_footstepTimer > 0f) return;
+
+            _footstepTimer = interval;
+
+            float vol = Mathf.Lerp(0.18f, 0.38f, Mathf.InverseLerp(patrolSpeed, chaseSpeed, speed));
+            Utilities.ProceduralAudioLibrary.Play(
+                _audio, Utilities.ProceduralAudioLibrary.ClipFootstep, vol);
         }
         // ── New behaviour states ─────────────────────────────────────────────────────
         private void UpdateInvestigate()

@@ -51,7 +51,7 @@ namespace FreeWorld.Enemy
         {
             if (Instance != null && Instance != this) { Destroy(this); return; }
             Instance = this;
-            DontDestroyOnLoad(gameObject);
+            // Not DontDestroyOnLoad — this is a per-session singleton living in the game scene
             ApplyDifficulty();
         }
 
@@ -94,7 +94,6 @@ namespace FreeWorld.Enemy
 
         // ── Debug ─────────────────────────────────────────────────────────────
         /// <summary>Difficulty level 0-1 — readable in the Inspector at runtime for testing.</summary>
-        [field: SerializeField, Header("Runtime (read-only)")]
         public float DifficultyLevel => _diffLevel;
 
         // ── Internal ─────────────────────────────────────────────────────────

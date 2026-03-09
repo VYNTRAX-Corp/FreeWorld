@@ -29,6 +29,8 @@ namespace FreeWorld.Enemy
 
         // ── IDamageable ───────────────────────────────────────────────────────
         public float CurrentHealth { get; private set; }
+        public float MaxHealth     => maxHealth;
+        public string EnemyTypeName => enemyTypeName;
         public bool  IsAlive       { get; private set; } = true;
 
         private EnemyAI _ai;
@@ -57,15 +59,17 @@ namespace FreeWorld.Enemy
             CurrentHealth -= amount;
 
             // Floating damage number at the hit point
-            DamageNumber.Show(amount, hitPoint != default ? hitPoint : transform.position + Vector3.up);
+            Vector3 dmgPos = hitPoint != default ? hitPoint : transform.position + Vector3.up;
+            DamageNumber.Show(amount, dmgPos);
 
-            // Blood hit effect
-            if (bloodSplatterPrefab != null)
-            {
-                GameObject fx = Instantiate(bloodSplatterPrefab, hitPoint,
-                                            Quaternion.LookRotation(-hitDirection));
-                Destroy(fx, 2f);
-            }
+            // VFX blood hit (procedural — no prefab needed)
+            if (hitPoint != default)
+                VFXManager.BloodHit(hitPoint, hitDirection != default ? -hitDirection : Vector3.up);
+
+            // Procedural hurt sound
+            var audio = GetComponent<AudioSource>();
+            if (audio != null)
+                ProceduralAudioLibrary.Play(audio, ProceduralAudioLibrary.ClipEnemyHurt, 0.7f);
 
             if (CurrentHealth <= 0f)
                 Die();
@@ -82,17 +86,61 @@ namespace FreeWorld.Enemy
 
             OnDeathEvent?.Invoke();
 
-            // Drop random loot
-            if (lootPrefabs != null && lootPrefabs.Length > 0
-                && UnityEngine.Random.value <= lootDropChance)
-            {
-                GameObject loot = lootPrefabs[UnityEngine.Random.Range(0, lootPrefabs.Length)];
-                if (loot != null)
-                    Instantiate(loot, transform.position + Vector3.up * 0.5f, Quaternion.identity);
-            }
+            // Procedural loot drop — no prefab required
+            SpawnProceduralLoot();
+
+            // Play death sound
+            ProceduralAudioLibrary.PlayAt(
+                ProceduralAudioLibrary.ClipEnemyDeath, transform.position, 0.8f);
 
             // Despawn after delay (replace with object pool or ragdoll later)
             Destroy(gameObject, despawnDelay);
+        }
+
+        // ── Procedural loot ───────────────────────────────────────────────────
+        private void SpawnProceduralLoot()
+        {
+            if (UnityEngine.Random.value > lootDropChance) return;
+
+            // 60 % health pickup, 40 % ammo pickup
+            bool isHealth = UnityEngine.Random.value < 0.6f;
+
+            Vector3 spawnPos = transform.position + Vector3.up * 0.3f
+                               + new Vector3(UnityEngine.Random.Range(-0.6f, 0.6f), 0f,
+                                             UnityEngine.Random.Range(-0.6f, 0.6f));
+
+            // Primitive shape: sphere for health, cube for ammo
+            PrimitiveType prim = isHealth ? PrimitiveType.Sphere : PrimitiveType.Cube;
+            GameObject go = GameObject.CreatePrimitive(prim);
+            go.name = isHealth ? "Pickup_Health" : "Pickup_Ammo";
+            go.transform.position   = spawnPos;
+            go.transform.localScale = Vector3.one * 0.35f;
+            go.tag = "Pickup";
+
+            // Emissive material
+            var mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+            mat.SetColor("_BaseColor",    isHealth ? new Color(0.1f, 0.9f, 0.2f) : new Color(0.95f, 0.8f, 0.1f));
+            mat.SetColor("_EmissionColor", isHealth ? new Color(0f, 0.4f, 0.05f)  : new Color(0.4f, 0.3f, 0f));
+            mat.EnableKeyword("_EMISSION");
+            go.GetComponent<Renderer>().material = mat;
+
+            // Replace auto-added collider with trigger
+            var col = go.GetComponent<Collider>();
+            if (col != null) col.isTrigger = true;
+
+            // Attach Pickup behaviour
+            var pickup = go.AddComponent<Pickup>();
+            if (isHealth)
+                pickup.Configure(Pickup.PickupType.Health, 25f);
+            else
+                pickup.Configure(Pickup.PickupType.Ammo,   30f);
+
+            // Play pickup chime so the player hears the drop
+            ProceduralAudioLibrary.PlayAt(
+                ProceduralAudioLibrary.ClipPickup, spawnPos, 0.5f);
+
+            // Auto-destroy if not collected within 20 s
+            UnityEngine.Object.Destroy(go, 20f);
         }
     }
 }

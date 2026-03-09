@@ -17,6 +17,7 @@ GameObject:
   - component: {fileID: 3440325609496823762}
   - component: {fileID: 8716206863336794603}
   - component: {fileID: 8292001914370068032}
+  - component: {fileID: 5499105482443014529}
   - component: {fileID: 5648850964209293514}
   m_Layer: 7
   m_Name: Enemy_Grunt
@@ -217,6 +218,23 @@ MonoBehaviour:
   ReloadTime: 2
   MaxRange: 15
   ShootAudioClip: {fileID: 0}
+--- !u!114 &5499105482443014529
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2326276836987233669}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3cbf80f0553b3064d951869259886946, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  yOffset: 2.6
+  barWidth: 1
+  barHeight: 0.1
+  fadeOutDelay: 2.5
+  fadeSpeed: 4
 --- !u!82 &5648850964209293514
 AudioSource:
   m_ObjectHideFlags: 0

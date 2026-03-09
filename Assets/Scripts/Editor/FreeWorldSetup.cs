@@ -797,17 +797,51 @@ namespace FreeWorld.Editor
 
             var pistolSO = new SerializedObject(pistol);
             pistolSO.FindProperty("fpsCam").objectReferenceValue = cam;
+            pistolSO.FindProperty("weaponName").stringValue      = "Pistol";
+            pistolSO.FindProperty("weaponType").enumValueIndex   = (int)WeaponType.Pistol;
+            pistolSO.FindProperty("fireMode").enumValueIndex     = (int)FireMode.SemiAuto;
+            pistolSO.FindProperty("damage").floatValue           = 35f;
+            pistolSO.FindProperty("fireRate").floatValue         = 400f;
+            pistolSO.FindProperty("magazineSize").intValue       = 15;
+            pistolSO.FindProperty("maxReserveAmmo").intValue     = 60;
+            pistolSO.FindProperty("reloadTime").floatValue       = 1.8f;
             pistolSO.ApplyModifiedPropertiesWithoutUndo();
 
             pistolMesh.SetActive(false);   // holstered by default
+
+            // ── Shotgun (slot 3) ──────────────────────────────────────────────
+            GameObject shotgunMesh = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            shotgunMesh.name = "Weapon_Shotgun_Placeholder";
+            shotgunMesh.transform.SetParent(weaponHolder.transform, false);
+            shotgunMesh.transform.localScale    = new Vector3(0.08f, 0.08f, 0.36f);
+            shotgunMesh.transform.localPosition = Vector3.zero;
+            Object.DestroyImmediate(shotgunMesh.GetComponent<BoxCollider>());
+
+            var shotgun = shotgunMesh.AddComponent<Shotgun>();
+            shotgunMesh.AddComponent<AudioSource>();
+
+            var shotgunSO = new SerializedObject(shotgun);
+            shotgunSO.FindProperty("fpsCam").objectReferenceValue = cam;
+            shotgunSO.FindProperty("weaponName").stringValue      = "Shotgun";
+            shotgunSO.FindProperty("weaponType").enumValueIndex   = (int)WeaponType.Shotgun;
+            shotgunSO.FindProperty("fireMode").enumValueIndex     = (int)FireMode.SemiAuto;
+            shotgunSO.FindProperty("damage").floatValue           = 18f;
+            shotgunSO.FindProperty("fireRate").floatValue         = 120f;
+            shotgunSO.FindProperty("magazineSize").intValue       = 6;
+            shotgunSO.FindProperty("maxReserveAmmo").intValue     = 30;
+            shotgunSO.FindProperty("reloadTime").floatValue       = 2.0f;
+            shotgunSO.ApplyModifiedPropertiesWithoutUndo();
+
+            shotgunMesh.SetActive(false);   // holstered by default
 
             // ── Wire WeaponManager weapon slots ──────────────────────────────
             var wm   = player.GetComponent<WeaponManager>();
             var wmSO = new SerializedObject(wm);
             var wArr = wmSO.FindProperty("weapons");
-            wArr.arraySize = 2;
+            wArr.arraySize = 3;
             wArr.GetArrayElementAtIndex(0).objectReferenceValue = weapon;
             wArr.GetArrayElementAtIndex(1).objectReferenceValue = pistol;
+            wArr.GetArrayElementAtIndex(2).objectReferenceValue = shotgun;
             wmSO.ApplyModifiedPropertiesWithoutUndo();
 
             return player;
@@ -845,6 +879,7 @@ namespace FreeWorld.Editor
             enemy.AddComponent<EnemyAI>();
             enemy.AddComponent<EnemyProceduralAnimator>();
             enemy.AddComponent<EnemyShootingModule>();
+            enemy.AddComponent<EnemyHealthBar>();
             enemy.AddComponent<AudioSource>();
 
             return enemy;

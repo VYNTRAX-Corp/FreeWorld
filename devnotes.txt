@@ -5,8 +5,6 @@ Day 3 of building my own FPS game from scratch 🎮
 
 The game finally looks like a GAME 🔥
 
-Two things today — visual effects and enemy AI that actually fights back
-
 VFX pass:
 Every bullet now leaves a tracer in the air ✨
 Hit an enemy? Blood splatter 🩸
@@ -15,7 +13,7 @@ Muzzle flash = real point light burst, not a fake sprite
 Post-processing turned on — Bloom, Vignette, Chromatic Aberration
 The game went from "Unity default grey" to actually cinematic
 
-Enemy AI:
+Enemy AI that actually fights back:
 Before today enemies just walked at you and stood still shooting 🤦
 Now they:
 → Strafe sideways while firing (hard to hit) ✅
@@ -25,10 +23,18 @@ Now they:
 → Learn from you — the faster you kill, the smarter they get ✅
 
 That last one — the adaptive difficulty — is wild to watch.
-Clear the first wave fast and by wave 3 they're a different enemy.
 No ML, no neural nets, just a rolling kill-speed tracker.
 Kill fast = they react faster, flank more, chase harder.
 Die = they ease off so it stays fun.
+
+Polish pass:
+🔫 Procedural gun models — rifle, pistol & shotgun, zero assets
+🎮 Weapon carousel HUD with coloured silhouette icons
+🩸 Directional damage indicator — red arrow points to where you got shot from
+👣 Enemy footsteps that speed up when they chase you
+🧱 Real PBR textures — concrete, brick, wood, metal — all CC0 free
+
+Everything is 100% code, zero bought assets
 
 Built with Unity + GitHub Copilot 🤖
 

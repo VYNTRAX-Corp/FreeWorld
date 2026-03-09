@@ -1,4 +1,5 @@
 using System;
+using FreeWorld.Utilities;
 using UnityEngine;
 
 namespace FreeWorld.Player
@@ -25,6 +26,7 @@ namespace FreeWorld.Player
         public event Action               OnDeath;
         public event Action               OnRespawn;
         public event Action               OnDamaged;        // fires any time damage is taken
+        public event Action<Vector3>      OnDamagedFrom;   // fires with world-space hit direction
 
         // ── Properties ────────────────────────────────────────────────────────
         public float CurrentHealth { get; private set; }
@@ -69,6 +71,11 @@ namespace FreeWorld.Player
 
             OnHealthChanged?.Invoke(CurrentHealth, maxHealth);
             OnDamaged?.Invoke();
+            OnDamagedFrom?.Invoke(hitDirection);
+
+            // Procedural hurt sound
+            ProceduralAudioLibrary.PlayAt(
+                ProceduralAudioLibrary.ClipPlayerHurt, transform.position, 0.85f);
 
             if (CurrentHealth <= 0f)
                 Die();
@@ -111,6 +118,9 @@ namespace FreeWorld.Player
             // Disable control while dead
             GetComponent<PlayerController>().enabled    = false;
             GetComponent<CharacterController>().enabled = false;
+
+            ProceduralAudioLibrary.PlayAt(
+                ProceduralAudioLibrary.ClipEnemyDeath, transform.position, 0.9f);
 
             OnDeath?.Invoke();
         }
