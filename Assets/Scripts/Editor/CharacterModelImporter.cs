@@ -31,7 +31,8 @@ namespace FreeWorld.Editor
     {
         private const string CharDir        = "Assets/Characters";
         private const string AnimDir         = "Assets/Characters/Animations";
-        private const string ControllerPath = "Assets/Characters/EnemyAnimator.controller";
+        private const string ControllerPath  = "Assets/Characters/EnemyAnimator.controller";
+        private const string ControllerResources = "Assets/Resources/EnemyAnimator.controller"; // runtime load
         private const string PrefabPath     = "Assets/Characters/Swat_Enemy.prefab";
         private const string CharacterFbx   = "Assets/Characters/Swat_Character.fbx";
         private const string UpperBodyMaskPath = "Assets/Characters/UpperBodyMask.mask";
@@ -217,6 +218,9 @@ namespace FreeWorld.Editor
             if (!File.Exists(ControllerPath))
                 CreateAnimatorController();
 
+            // Mirror to Resources so EnemyModelAnimator can self-heal at runtime
+            EnsureControllerInResources();
+
             AssetDatabase.Refresh();
 
             string summary = changed > 0
@@ -231,10 +235,31 @@ namespace FreeWorld.Editor
             EditorUtility.DisplayDialog("Character Model Setup", summary, "OK");
         }
 
+        // ── Create/refresh Resources copy so runtime can load without AssetDatabase ──
+        private static void EnsureControllerInResources()
+        {
+            if (!File.Exists(ControllerPath)) return;
+
+            if (!AssetDatabase.IsValidFolder("Assets/Resources"))
+                AssetDatabase.CreateFolder("Assets", "Resources");
+
+            // Copy only when missing or source is newer
+            if (!File.Exists(ControllerResources) ||
+                File.GetLastWriteTimeUtc(ControllerPath) > File.GetLastWriteTimeUtc(ControllerResources))
+            {
+                // AssetDatabase copy keeps GUID links intact
+                AssetDatabase.CopyAsset(ControllerPath, ControllerResources);
+                AssetDatabase.Refresh();
+                Debug.Log("[CharacterModelImporter] Mirrored controller to Resources: " + ControllerResources);
+            }
+        }
+
         // ── Build AnimatorController — Layer 0: Locomotion, Layer 1: Upper Body ─
         private static AnimatorController CreateAnimatorController()
         {
             var controller = AnimatorController.CreateAnimatorControllerAtPath(ControllerPath);
+            // also mirror immediately
+            EnsureControllerInResources();
 
             // Parameters
             controller.AddParameter("MoveX",       AnimatorControllerParameterType.Float);
@@ -613,6 +638,7 @@ namespace FreeWorld.Editor
             PrefabUtility.UnloadPrefabContents(contents);
 
             Debug.Log("[CharacterModelImporter] Prefab saved with controller: " + PrefabPath);
+            EnsureControllerInResources();
             return PrefabPath;
         }
 

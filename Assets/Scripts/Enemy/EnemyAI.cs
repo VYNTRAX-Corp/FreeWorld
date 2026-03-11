@@ -367,6 +367,8 @@ namespace FreeWorld.Enemy
             if (_state == newState) return;
             _state = newState;
 
+            if (!_agent.isOnNavMesh) return;  // spawned off NavMesh — skip all agent calls
+
             _agent.isStopped = false;
             var adapt = EnemyAdaptiveSystem.Instance;
             switch (newState)

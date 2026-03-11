@@ -1,5 +1,6 @@
 using FreeWorld.Managers;
 using UnityEngine;
+using System.Collections;
 
 namespace FreeWorld.Player
 {
@@ -24,6 +25,10 @@ namespace FreeWorld.Player
         [SerializeField] private float crouchHeight = 0.9f;
         [SerializeField] private float crouchTransitionSpeed = 10f;
 
+        [Header("Slope Handling")]
+        [SerializeField] [Range(30f, 89f)] private float slopeLimit = 80f;
+        [SerializeField] [Min(0f)] private float stepOffset = 0.35f;
+
         [Header("Ground Check")]
         [SerializeField] private Transform groundCheck;
         [SerializeField] private float groundDistance = 0.3f;
@@ -36,12 +41,17 @@ namespace FreeWorld.Player
         [SerializeField] private float crouchStepInterval = 0.7f;
         [SerializeField] [Range(0f, 1f)] private float footstepVolume = 0.4f;
 
-        // ── Internal state ──────────────────────────────────────────────────
+        [Header("Exhaustion")]
+        [SerializeField] [Range(0f, 1f)] private float exhaustedSpeedMultiplier = 0.55f; // walk speed penalty when stamina = 0
+
+        // ── Internal state ──────────────────────────────────────────────
         private CharacterController _cc;
-        private Vector3 _velocity;
-        private bool _isGrounded;
-        private bool _isCrouching;
-        private float _targetHeight;
+        private PlayerVitals        _vitals;
+        private PlayerStats         _stats;
+        private Vector3             _velocity;
+        private bool                _isGrounded;
+        private bool                _isCrouching;
+        private float               _targetHeight;
 
         // Footstep state
         private AudioSource _footstepAudio;
@@ -56,7 +66,15 @@ namespace FreeWorld.Player
         // ────────────────────────────────────────────────────────────────────
         private void Awake()
         {
-            _cc = GetComponent<CharacterController>();
+            _cc     = GetComponent<CharacterController>();
+
+            // Make hill climbing deterministic regardless of prefab defaults.
+            _cc.slopeLimit = slopeLimit;
+            _cc.stepOffset = stepOffset;
+
+            // Get existing PlayerVitals, or add it now so it's always ready before Update()
+            _vitals = GetComponent<PlayerVitals>() ?? gameObject.AddComponent<PlayerVitals>();
+            _stats  = GetComponent<PlayerStats>()  ?? gameObject.AddComponent<PlayerStats>();
             _targetHeight = standHeight;
             _footstepAudio = gameObject.AddComponent<AudioSource>();
             _footstepAudio.spatialBlend = 0f;
@@ -76,6 +94,32 @@ namespace FreeWorld.Player
             HandleFootsteps();
         }
 
+        private void Start()
+        {
+            StartCoroutine(EnsureSpawnOnGround());
+        }
+
+        private IEnumerator EnsureSpawnOnGround()
+        {
+            // Wait a frame so ProceduralTerrain generation and collider sync finish.
+            yield return null;
+
+            var terrain = Terrain.activeTerrain;
+            if (terrain == null) yield break;
+
+            Vector3 p = transform.position;
+            float terrainY = terrain.SampleHeight(p) + terrain.transform.position.y;
+            float targetY = terrainY + (_cc.height * 0.5f) + 0.05f;
+
+            if (p.y < targetY)
+            {
+                _cc.enabled = false;
+                transform.position = new Vector3(p.x, targetY, p.z);
+                _cc.enabled = true;
+                _velocity = Vector3.zero;
+            }
+        }
+
         // ── Ground detection ─────────────────────────────────────────────────
         private void CheckGround()
         {
@@ -91,17 +135,27 @@ namespace FreeWorld.Player
             float h = Input.GetAxis("Horizontal");
             float v = Input.GetAxis("Vertical");
 
-            bool wantsToSprint = Input.GetKey(KeyCode.LeftShift) && !_isCrouching && v > 0.1f;
-            IsSprinting = wantsToSprint;
+            // Lazy re-fetch in case component was added after Awake (edge case)
+            if (_vitals == null) _vitals = GetComponent<PlayerVitals>();
 
+            bool exhausted      = _vitals != null && !_vitals.CanSprint;
+            bool wantsToSprint  = Input.GetKey(KeyCode.LeftShift) && !_isCrouching && v > 0.1f;
+            IsSprinting = wantsToSprint && !exhausted;
+
+            float statMult = _stats != null ? _stats.SpeedMultiplier : 1f;
             float speed = _isCrouching ? crouchSpeed
-                        : IsSprinting  ? sprintSpeed
-                        : walkSpeed;
+                        : IsSprinting  ? sprintSpeed  * statMult
+                        : exhausted    ? walkSpeed * exhaustedSpeedMultiplier
+                        : walkSpeed * statMult;
 
             CurrentSpeed = (Mathf.Abs(h) + Mathf.Abs(v)) > 0.1f ? speed : 0f;
 
             Vector3 move = transform.right * h + transform.forward * v;
             _cc.Move(move.normalized * speed * Time.deltaTime);
+
+            // Track distance for Speed XP
+            if (CurrentSpeed > 0.1f)
+                _stats?.TrackMovement(speed * Time.deltaTime);
 
             if (Input.GetButtonDown("Jump") && _isGrounded && !_isCrouching)
                 _velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);

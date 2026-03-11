@@ -185,6 +185,7 @@ MonoBehaviour:
   alertSound: {fileID: 0}
   shootSound: {fileID: 0}
   deathSound: {fileID: 0}
+  audioBank: {fileID: 0}
 --- !u!114 &8716206863336794603
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -219,6 +220,7 @@ MonoBehaviour:
   ReloadTime: 2
   MaxRange: 15
   ShootAudioClip: {fileID: 0}
+  AudioBank: {fileID: 0}
 --- !u!114 &5499105482443014529
 MonoBehaviour:
   m_ObjectHideFlags: 0

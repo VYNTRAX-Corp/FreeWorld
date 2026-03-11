@@ -95,6 +95,16 @@ namespace FreeWorld.Player
             OnArmorChanged?.Invoke(CurrentArmor, maxArmor);
         }
 
+        /// <summary>Restore exact health + armor values (used by SaveManager).</summary>
+        public void LoadState(float health, float armor)
+        {
+            IsAlive       = true;
+            CurrentHealth = Mathf.Clamp(health, 0f, maxHealth);
+            CurrentArmor  = Mathf.Clamp(armor,  0f, maxArmor);
+            OnHealthChanged?.Invoke(CurrentHealth, maxHealth);
+            OnArmorChanged?.Invoke(CurrentArmor,   maxArmor);
+        }
+
         public void Respawn(Vector3 spawnPoint)
         {
             IsAlive       = true;

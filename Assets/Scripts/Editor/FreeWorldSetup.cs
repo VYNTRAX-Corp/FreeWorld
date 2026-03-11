@@ -21,6 +21,7 @@ using FreeWorld.Managers;
 using FreeWorld.Player;
 using FreeWorld.Utilities;
 using FreeWorld.Weapons;
+using FreeWorld.World;
 
 namespace FreeWorld.Editor
 {
@@ -666,31 +667,45 @@ namespace FreeWorld.Editor
 
         private static GameObject CreateGround()
         {
+            // ── Physics floor (flat cube, works without Terrain Physics package) ────
+            // This is the authoritative collision surface the player and enemies walk on.
             GameObject ground = GameObject.CreatePrimitive(PrimitiveType.Cube);
             ground.name = "Ground";
             ground.tag  = "Ground";
-            ground.transform.localScale    = new Vector3(100f, 1f, 100f);
-            ground.transform.position      = new Vector3(0f, -0.5f, 0f);
+            ground.transform.localScale = new Vector3(1000f, 1f, 1000f);
+            ground.transform.position   = new Vector3(0f, -0.5f, 0f);
 
-            // Static flags for lighting & occlusion (NavigationStatic is obsolete in 2022+)
             GameObjectUtility.SetStaticEditorFlags(ground,
-                StaticEditorFlags.ContributeGI |
-                StaticEditorFlags.OccluderStatic);
+                StaticEditorFlags.ContributeGI | StaticEditorFlags.OccluderStatic);
 
-            // Add a NavMeshSurface so enemies can pathfind — bake immediately
+            // Material
+            var mat = TextureGenerator.GetOrCreateMaterial(
+                "GroundMaterial", "T_Concrete",
+                new Color(0.55f, 0.48f, 0.38f), new Vector2(80f, 80f));
+            ground.GetComponent<Renderer>().sharedMaterial = mat;
+
+            // NavMeshSurface for pathfinding (baked on the flat cube)
             var navSurface = ground.AddComponent<NavMeshSurface>();
             navSurface.BuildNavMesh();
 
-            // Give it a concrete texture
-            Renderer r = ground.GetComponent<Renderer>();
-            if (r != null)
-            {
-                TextureGenerator.GenerateAll();
-                Material mat = TextureGenerator.GetOrCreateMaterial(
-                    "GroundMaterial", "T_Concrete",
-                    new Color(0.80f, 0.80f, 0.78f), new Vector2(20f, 20f));
-                r.material = mat;
-            }
+            // ── Visual terrain (procedural hills/mountains, NO physics required) ─────
+            // flattenHeight=0 means the spawn centre is at terrain minimum (Y=0),
+            // matching the cube surface, so mountains rise naturally around the player.
+            if (!AssetDatabase.IsValidFolder("Assets/TerrainData"))
+                AssetDatabase.CreateFolder("Assets", "TerrainData");
+
+            // Delete stale asset to avoid 'already exists' error on rebuild
+            AssetDatabase.DeleteAsset("Assets/TerrainData/MainTerrain.asset");
+            var terrainData = new TerrainData();
+            terrainData.heightmapResolution = 513;
+            terrainData.size = new Vector3(1000f, 40f, 1000f);
+            AssetDatabase.CreateAsset(terrainData, "Assets/TerrainData/MainTerrain.asset");
+
+            GameObject terrainGO = Terrain.CreateTerrainGameObject(terrainData);
+            terrainGO.name = "VisualTerrain";
+            // Position so terrain origin aligns with physics floor surface (Y=0)
+            terrainGO.transform.position = new Vector3(-500f, 0f, -500f);
+            terrainGO.AddComponent<ProceduralTerrain>();
 
             return ground;
         }
@@ -709,9 +724,11 @@ namespace FreeWorld.Editor
             Object.DestroyImmediate(player.GetComponent<CapsuleCollider>());
 
             var cc = player.AddComponent<CharacterController>();
-            cc.height = 1.8f;
-            cc.radius = 0.35f;
-            cc.center = new Vector3(0f, 0.9f, 0f);
+            cc.height      = 1.8f;
+            cc.radius      = 0.35f;
+            cc.center      = new Vector3(0f, 0.9f, 0f);
+            cc.slopeLimit  = 55f;   // allow moderate hills (default 45° is too restrictive)
+            cc.stepOffset  = 0.4f;  // step over small bumps at terrain mesh seams
 
             // ── Ground check ──────────────────────────────────────────────────
             GameObject groundCheck = new GameObject("GroundCheck");
@@ -750,6 +767,10 @@ namespace FreeWorld.Editor
             camSO.ApplyModifiedPropertiesWithoutUndo();
 
             player.AddComponent<PlayerHealth>();
+            player.AddComponent<Player.PlayerVitals>();
+            player.AddComponent<Player.PlayerStats>();
+            player.AddComponent<Inventory.Inventory>();
+            player.AddComponent<Managers.InventoryUI>();
             player.AddComponent<WeaponManager>();
 
             // Grenade throwing
@@ -899,68 +920,54 @@ namespace FreeWorld.Editor
             return enemy;
         }
 
-        // Builds a small CS-style arena: perimeter walls + crates for cover
+        // Open-world cover objects — crates/barriers scattered across the map, no walls
         private static void CreateArena()
         {
             GameObject arena = new GameObject("Arena");
-            Material wallMat = TextureGenerator.GetOrCreateMaterial(
-                "WallMaterial", "T_Brick",
-                Color.white, new Vector2(8f, 2f));
 
-            // ── Perimeter walls (4 sides, 40×3 units) ─────────────────────────
-            (Vector3 pos, Vector3 scale, string name)[] walls =
-            {
-                (new Vector3( 0f, 1.5f,  25f), new Vector3(50f, 3f, 1f), "Wall_North"),
-                (new Vector3( 0f, 1.5f, -25f), new Vector3(50f, 3f, 1f), "Wall_South"),
-                (new Vector3( 25f, 1.5f,  0f), new Vector3(1f, 3f, 50f), "Wall_East"),
-                (new Vector3(-25f, 1.5f,  0f), new Vector3(1f, 3f, 50f), "Wall_West"),
-            };
-
-            foreach (var w in walls)
-            {
-                var wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                wall.name = w.name;
-                wall.transform.SetParent(arena.transform);
-                wall.transform.position   = w.pos;
-                wall.transform.localScale = w.scale;
-                wall.GetComponent<Renderer>().sharedMaterial = wallMat;
-                GameObjectUtility.SetStaticEditorFlags(wall,
-                    StaticEditorFlags.ContributeGI | StaticEditorFlags.OccluderStatic);
-            }
-
-            // ── Cover crates (scattered around mid-map) ────────────────────────
             Material crateMat = TextureGenerator.GetOrCreateMaterial(
                 "CrateMaterial", "T_Wood",
                 Color.white, new Vector2(2f, 2f));
+            Material stoneMat = TextureGenerator.GetOrCreateMaterial(
+                "StoneMaterial", "T_Stone",
+                new Color(0.5f, 0.5f, 0.5f), new Vector2(4f, 4f));
 
-            (Vector3 pos, Vector3 scale)[] crates =
+            // ── Crates — scattered outward from spawn in clusters ──────────────
+            (Vector3 pos, Vector3 scale, Material mat)[] props =
             {
-                // Centre cluster
-                (new Vector3(  0f, 0.6f,   0f), new Vector3(1.2f, 1.2f, 1.2f)),
-                (new Vector3(  1.3f, 0.6f, 0.2f), new Vector3(1.2f, 1.2f, 1.2f)),
-                // Mid-left cover
-                (new Vector3(-8f, 0.6f,  3f), new Vector3(3f, 1.2f, 1.2f)),
-                (new Vector3(-8f, 1.8f,  3f), new Vector3(3f, 1.2f, 0.6f)),    // stacked
-                // Mid-right cover
-                (new Vector3( 8f, 0.6f, -3f), new Vector3(3f, 1.2f, 1.2f)),
-                // Far-left corner cover
-                (new Vector3(-14f, 0.6f, 12f), new Vector3(1.2f, 1.2f, 3f)),
-                (new Vector3(-14f, 0.6f,  9f), new Vector3(1.2f, 1.2f, 1.2f)),
-                // Far-right corner cover
-                (new Vector3( 14f, 0.6f,-12f), new Vector3(1.2f, 1.2f, 3f)),
-                // Diagonal wall
-                (new Vector3(  3f, 0.6f, 10f), new Vector3(6f, 1.8f, 0.5f)),
-                (new Vector3( -4f, 0.6f,-10f), new Vector3(6f, 1.8f, 0.5f)),
+                // Near-spawn cluster (so player has immediate cover)
+                (new Vector3(  6f, 0.6f,  4f), new Vector3(1.2f, 1.2f, 1.2f), crateMat),
+                (new Vector3(  7.3f, 0.6f, 4.2f), new Vector3(1.2f, 1.2f, 1.2f), crateMat),
+                (new Vector3(  6f, 1.8f,  4f), new Vector3(1.2f, 1.2f, 0.6f), crateMat),
+                (new Vector3( -6f, 0.6f, -4f), new Vector3(3f, 1.2f, 1.2f), crateMat),
+
+                // Mid-range scatter (30–60 m)
+                (new Vector3( 35f, 0.6f,  20f), new Vector3(3f, 1.2f, 1.2f), crateMat),
+                (new Vector3( 35f, 1.8f,  20f), new Vector3(3f, 1.2f, 0.6f), crateMat),
+                (new Vector3(-40f, 0.6f,  15f), new Vector3(1.2f, 1.2f, 3f), crateMat),
+                (new Vector3(-40f, 0.6f,  12f), new Vector3(1.2f, 1.2f, 1.2f), crateMat),
+                (new Vector3( 20f, 0.6f, -45f), new Vector3(1.2f, 1.2f, 3f), crateMat),
+                (new Vector3(-25f, 0.6f, -35f), new Vector3(6f, 1.8f, 0.5f), crateMat),
+                (new Vector3(  5f, 0.6f,  55f), new Vector3(6f, 1.8f, 0.5f), crateMat),
+
+                // Long-range scatter (60–120 m) — stone barriers
+                (new Vector3( 80f, 1.0f,  50f), new Vector3(8f, 2f, 1f), stoneMat),
+                (new Vector3(-70f, 1.0f, -60f), new Vector3(1f, 2f, 8f), stoneMat),
+                (new Vector3( 60f, 1.0f, -80f), new Vector3(8f, 2f, 1f), stoneMat),
+                (new Vector3(-90f, 1.0f,  70f), new Vector3(1f, 2f, 8f), stoneMat),
+                (new Vector3( 10f, 1.0f, 110f), new Vector3(8f, 2f, 1f), stoneMat),
+                (new Vector3(-10f, 1.0f,-110f), new Vector3(8f, 2f, 1f), stoneMat),
             };
 
-            for (int i = 0; i < crates.Length; i++)
+            for (int i = 0; i < props.Length; i++)
             {
                 var c = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                c.name = $"Crate_{i + 1}";
+                c.name = $"Cover_{i + 1}";
                 c.transform.SetParent(arena.transform);
-                c.transform.position   = crates[i].pos;
-                c.transform.localScale = crates[i].scale;
-                c.GetComponent<Renderer>().sharedMaterial = crateMat;
+                c.transform.position   = props[i].pos;
+                c.transform.localScale = props[i].scale;
+                c.GetComponent<Renderer>().sharedMaterial = props[i].mat;
+                GameObjectUtility.SetStaticEditorFlags(c, StaticEditorFlags.ContributeGI);
             }
         }
 
@@ -969,11 +976,15 @@ namespace FreeWorld.Editor
             GameObject root = new GameObject("SpawnPoints");
             Vector3[] positions =
             {
-                new Vector3( 0f, 0f,  0f),
-                new Vector3(15f, 0f, 15f),
-                new Vector3(-15f, 0f, 15f),
-                new Vector3(15f, 0f, -15f),
-                new Vector3(-15f, 0f, -15f),
+                new Vector3(  0f, 0f,    0f),
+                new Vector3( 40f, 0f,   40f),
+                new Vector3(-40f, 0f,   40f),
+                new Vector3( 40f, 0f,  -40f),
+                new Vector3(-40f, 0f,  -40f),
+                new Vector3( 80f, 0f,    0f),
+                new Vector3(-80f, 0f,    0f),
+                new Vector3(  0f, 0f,   80f),
+                new Vector3(  0f, 0f,  -80f),
             };
 
             for (int i = 0; i < positions.Length; i++)
@@ -998,6 +1009,11 @@ namespace FreeWorld.Editor
             GameObject smObj = new GameObject("SettingsManager");
             smObj.transform.SetParent(managers.transform);
             smObj.AddComponent<SettingsManager>();
+
+            // SaveManager — persists player state to disk
+            GameObject saveObj = new GameObject("SaveManager");
+            saveObj.transform.SetParent(managers.transform);
+            saveObj.AddComponent<Save.SaveManager>();
 
             // EnemyAdaptiveSystem — adjusts enemy difficulty based on player performance
             GameObject adaptObj = new GameObject("EnemyAdaptiveSystem");
@@ -1230,6 +1246,14 @@ namespace FreeWorld.Editor
             sbSO.FindProperty("rowContainer").objectReferenceValue = rowRoot.transform;
             sbSO.ApplyModifiedPropertiesWithoutUndo();
             sbPanel.SetActive(false);
+
+            // ── WorldManager (world systems) ──────────────────────────────────
+            GameObject worldObj = new GameObject("WorldManager");
+            worldObj.transform.SetParent(managers.transform);
+            worldObj.AddComponent<DayNightCycle>();
+            worldObj.AddComponent<BiomeSystem>();
+            worldObj.AddComponent<WeatherSystem>();
+            worldObj.AddComponent<MinimapSystem>();
 
             // ── EnemySpawner ──────────────────────────────────────────────────
             GameObject spawnerObj = new GameObject("EnemySpawner");

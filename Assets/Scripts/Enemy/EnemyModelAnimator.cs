@@ -49,9 +49,22 @@ namespace FreeWorld.Enemy
             _ai          = GetComponent<EnemyAI>();
 
             if (_animator == null)
+            {
                 Debug.LogWarning("[EnemyModelAnimator] No Animator found — make sure the model has an Animator component.", gameObject);
+            }
             else if (_animator.runtimeAnimatorController == null)
-                Debug.LogWarning("[EnemyModelAnimator] Animator has no AnimatorController assigned. Re-run FreeWorld > Setup > 5.", gameObject);
+            {
+                // Self-heal: try loading from Resources (mirrored there by CharacterModelImporter)
+                var fallback = Resources.Load<RuntimeAnimatorController>("EnemyAnimator");
+                if (fallback != null)
+                {
+                    _animator.runtimeAnimatorController = fallback;
+                }
+                else
+                {
+                    Debug.LogWarning("[EnemyModelAnimator] Animator has no AnimatorController assigned. Re-run FreeWorld > Setup > 5.", gameObject);
+                }
+            }
         }
 
         // ── Per-frame parameter push ──────────────────────────────────────────

@@ -121,9 +121,15 @@ namespace FreeWorld.Utilities
                 ? spawnIndex
                 : Random.Range(0, spawnPoints.Length);
             Transform sp = spawnPoints[idx];
-            // Small random offset so enemies don't stack if wave has more enemies than spawn points
+            // Small random offset so enemies don't stack
             Vector3 offset = new Vector3(Random.Range(-0.8f, 0.8f), 0f, Random.Range(-0.8f, 0.8f));
-            var go = Instantiate(enemyPrefab, sp.position + offset, sp.rotation);
+            Vector3 spawnPos = sp.position + offset;
+
+            // Snap to nearest NavMesh point so the agent is always valid on spawn
+            if (UnityEngine.AI.NavMesh.SamplePosition(spawnPos, out var hit, 10f, UnityEngine.AI.NavMesh.AllAreas))
+                spawnPos = hit.position;
+
+            var go = Instantiate(enemyPrefab, spawnPos, sp.rotation);
             go.GetComponent<Enemy.EnemyAI>()?.SetVariant(ChooseVariant(round));
             Managers.GameManager.Instance?.RegisterEnemySpawn();
             Debug.Log($"[EnemySpawner] Spawned enemy round={round} spawnPoint={idx} variant={ChooseVariant(round)}");

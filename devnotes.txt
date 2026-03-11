@@ -3,7 +3,9 @@ Day 2 - Dynamic crossshair, main menu, loading indication, basic surface texture
 
 Day 4 of building my own FPS game from scratch 🎮
 
-Enemies now support REAL human skins 🧑‍🤝‍🧑
+Two big systems today: real human skins AND real gun sounds 🧑‍🤝‍🧑🔫
+
+━━ PART 1 — Human models ━━
 
 Been using procedural primitive bodies since day 2 —
 cubes, cylinders, spheres stitched together.
@@ -21,7 +23,7 @@ EnemyBodyParts struct with bone Transform references.
 EnemyModelAnimator drives the Animator via Speed, IsAttacking,
 IsReloading, IsDead parameters — the AI logic didn't change at all.
 
-The gun automatically attaches to the right forearm bone either way. 🔫
+The gun automatically attaches to the right forearm bone either way.
 
 The AnimatorController comes pre-wired:
 Idle → Walk → Run → Aim → Reload → Death
@@ -32,15 +34,38 @@ Best CC0 character sources I found:
 🎭 Kenney — toon characters pack, CC0, clean topology
 🎭 OpenGameArt — various CC0 base meshes
 
+━━ PART 2 — Real gun sounds ━━
+
+Built a WeaponAudioBank system — a ScriptableObject that holds all the sound
+categories (rifle, pistol, shotgun, enemy alerts, footsteps, death sounds…).
+Drop a file in, the editor auto-wires it. No button. No drag-and-drop. Just works.
+
+Then I imported real CC0 firearm recordings — a pistol, an AK-47, and a shotgun —
+and the shots sounded… delayed? Like pulling the trigger and hearing it a full
+second later. Terrible.
+
+Turned out MP3 encoding adds 100–500ms of silence before the first sample.
+Every. Single. File. So I built an ffmpeg pipeline:
+  silencedetect → measure exact gap → atrim → export PCM WAV
+
+Zero latency now. Instant crack on every shot.
+
+Also wired all enemies to 3D spatial audio — sounds actually come FROM the
+enemy's position in the world. Chase a grunt around a corner and you hear
+the rifle from *there*, not from inside your head.
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+
 The whole system is a clean fallback chain:
 Real model → procedural if no model assigned
+Real audio clip → bank random pick → procedural synth
 No code changes needed in the AI when you switch
 
 Everything is still 100% code, zero bought assets
 
 Built with Unity + GitHub Copilot 🤖
 
-#gamedev #unity3d #fps #indiegame #coding #buildinpublic #gamedevelopment #unitydeveloper #csharp #devlog #gameai
+#gamedev #unity3d #fps #indiegame #coding #buildinpublic #gamedevelopment #unitydeveloper #csharp #devlog #sounddesign #gameai
 
 
 Day 3 of building my own FPS game from scratch 🎮

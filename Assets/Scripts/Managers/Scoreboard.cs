@@ -33,13 +33,21 @@ namespace FreeWorld.Managers
         private readonly List<GameObject>  _rows    = new List<GameObject>();
         private bool _visible;
 
+        // Merged panel — found at runtime on the same GameObject
+        private InventoryUI _inventoryUI;
+
         // ─────────────────────────────────────────────────────────────────────
         private void Awake()
         {
             panel?.SetActive(false);
-
-            // Add the local player entry
             AddEntry("You", 0, 0, 0);
+        }
+
+        private void Start()
+        {
+            _inventoryUI = GetComponent<InventoryUI>();
+            // Push initial data so the scoreboard tab is populated on first open
+            if (_inventoryUI != null) _inventoryUI.RefreshScoreboard(_entries);
         }
 
         private void OnEnable()
@@ -57,6 +65,9 @@ namespace FreeWorld.Managers
 
         private void Update()
         {
+            // Input is handled by InventoryUI when the merged panel is present
+            if (_inventoryUI != null) return;
+
             if (Input.GetKeyDown(toggleKey)) Show(true);
             if (Input.GetKeyUp(toggleKey))   Show(false);
         }
@@ -95,12 +106,20 @@ namespace FreeWorld.Managers
                 _entries[0].Kills  = GameManager.Instance != null
                                      ? GameManager.Instance.KillCount : 0;
             }
-            if (_visible) RebuildRows();
+            RebuildRows(); // always push so data is fresh when panel opens
         }
 
         private void Show(bool show)
         {
             _visible = show;
+
+            if (_inventoryUI != null)
+            {
+                _inventoryUI.ShowScoreboard(show);
+                return;
+            }
+
+            // Fallback: legacy panel
             panel?.SetActive(show);
             if (show)
             {
@@ -121,6 +140,13 @@ namespace FreeWorld.Managers
 
         private void RebuildRows()
         {
+            // Push to merged panel if available
+            if (_inventoryUI != null)
+            {
+                _inventoryUI.RefreshScoreboard(_entries);
+                return;
+            }
+
             if (rowContainer == null) return;
 
             // Clear existing rows

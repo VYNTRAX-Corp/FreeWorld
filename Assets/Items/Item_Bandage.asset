@@ -1,0 +1,26 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9c0556e5350dd5741a791cf17bba068c, type: 3}
+  m_Name: Item_Bandage
+  m_EditorClassIdentifier: 
+  itemName: New Item
+  description: 
+  category: 8
+  icon: {fileID: 0}
+  stackable: 1
+  maxStack: 99
+  weightKg: 0.1
+  healAmount: 0
+  foodAmount: 0
+  waterAmount: 0
+  staminaAmount: 0
+  dropPrefab: {fileID: 0}

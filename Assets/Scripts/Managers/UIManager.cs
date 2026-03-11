@@ -77,6 +77,18 @@ namespace FreeWorld.Managers
         private GameState _lastKnownState = (GameState)(-1); // invalid sentinel
         private int   _lastAmmo = -1;
 
+        // ── Vitals bars (runtime-built, survival HUD) ─────────────────────────
+        private struct VitalsBarUI
+        {
+            public RectTransform    fill;
+            public TextMeshProUGUI  abbrevLabel;
+            public TextMeshProUGUI  valueLabel;
+            public float            innerWidth;   // usable fill width in pixels
+        }
+        private VitalsBarUI _staminaBarUI;
+        private VitalsBarUI _hungerBarUI;
+        private VitalsBarUI _thirstBarUI;
+
         // ── Damage Direction Indicators ───────────────────────────────────────
         private const int   _maxArrows     = 4;
         private const float _arrowLifetime = 1.5f;
@@ -321,6 +333,18 @@ namespace FreeWorld.Managers
                 UpdateHealth(ph.CurrentHealth, 100f);
             }
 
+            // Subscribe to player vitals events
+            Player.PlayerVitals pv = FindObjectOfType<Player.PlayerVitals>();
+            if (pv != null)
+            {
+                pv.OnStaminaChanged += UpdateStamina;
+                pv.OnHungerChanged  += UpdateHunger;
+                pv.OnThirstChanged  += UpdateThirst;
+                UpdateStamina(pv.Stamina, 100f);
+                UpdateHunger(pv.Hunger,   100f);
+                UpdateThirst(pv.Thirst,   100f);
+            }
+
             HideAllScreens();
         }
 
@@ -377,6 +401,29 @@ namespace FreeWorld.Managers
             TickDamageFlash();
             TickDamageIndicators();
             TickCrosshair();
+            TickVitals();
+        }
+
+        // Poll vitals every frame — works even if events were missed on startup
+        private Player.PlayerVitals _cachedVitals;
+        private void TickVitals()
+        {
+            if (_cachedVitals == null)
+                _cachedVitals = FindObjectOfType<Player.PlayerVitals>();
+
+            // Auto-add if the component is absent — fixes existing scenes without re-running Setup
+            if (_cachedVitals == null)
+            {
+                var playerGO = GameObject.FindGameObjectWithTag("Player");
+                if (playerGO != null)
+                    _cachedVitals = playerGO.AddComponent<Player.PlayerVitals>();
+            }
+
+            if (_cachedVitals == null) return;
+
+            SetVitalsBar(_staminaBarUI, _cachedVitals.Stamina / 100f);
+            UpdateHunger(_cachedVitals.Hunger,  100f);
+            UpdateThirst(_cachedVitals.Thirst,  100f);
         }
 
         // ── Health / Armor ────────────────────────────────────────────────────
@@ -390,6 +437,42 @@ namespace FreeWorld.Managers
         {
             if (armorBar  != null) armorBar.value  = current / max;
             if (armorText != null) armorText.text  = Mathf.CeilToInt(current).ToString();
+        }
+
+        // ── Vitals ────────────────────────────────────────────────────────────
+        public void UpdateStamina(float current, float max)
+        {
+            SetVitalsBar(_staminaBarUI, current / max);
+        }
+
+        public void UpdateHunger(float current, float max)
+        {
+            Color c = current > 30f ? new Color(0.95f, 0.65f, 0.15f)
+                    : current > 10f ? new Color(1f,    0.35f, 0.10f)
+                    :                 new Color(1f,    0.10f, 0.10f);
+            SetVitalsBar(_hungerBarUI, current / max, c);
+        }
+
+        public void UpdateThirst(float current, float max)
+        {
+            Color c = current > 30f ? new Color(0.25f, 0.65f, 1.00f)
+                    : current > 10f ? new Color(0.90f, 0.40f, 0.10f)
+                    :                 new Color(1f,    0.10f, 0.10f);
+            SetVitalsBar(_thirstBarUI, current / max, c);
+        }
+
+        private static void SetVitalsBar(VitalsBarUI bar, float t, Color? color = null)
+        {
+            if (bar.fill == null) return;
+            float clamped = Mathf.Clamp01(t);
+            bar.fill.sizeDelta = new Vector2(bar.innerWidth * clamped, 0f);
+            if (color.HasValue)
+            {
+                var img = bar.fill.GetComponent<UnityEngine.UI.Image>();
+                if (img != null) img.color = color.Value;
+            }
+            if (bar.valueLabel != null)
+                bar.valueLabel.text = $"{clamped * 100f:F1}%";
         }
 
         // ── Ammo ──────────────────────────────────────────────────────────────
@@ -427,10 +510,10 @@ namespace FreeWorld.Managers
                 grenadeCountText = go.AddComponent<TextMeshProUGUI>();
                 ApplyHUDStyle(grenadeCountText, 26f, new Color(0.55f, 1f, 0.40f));
                 var rt = grenadeCountText.rectTransform;
-                rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(1f, 0f);
-                rt.anchoredPosition = new Vector2(-24f, 148f);
-                rt.sizeDelta        = new Vector2(200f, 36f);
-                grenadeCountText.alignment = TextAlignmentOptions.Right;
+                rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0f);
+                rt.anchoredPosition = new Vector2(180f, 124f);
+                rt.sizeDelta        = new Vector2(140f, 36f);
+                grenadeCountText.alignment = TextAlignmentOptions.Left;
             }
 
             grenadeCountText.text  = count > 0
@@ -919,29 +1002,29 @@ namespace FreeWorld.Managers
             if (ammoText != null)
             {
                 var rt = ammoText.rectTransform;
-                rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(1f, 0f);
-                rt.anchoredPosition = new Vector2(-24f, 78f);
-                rt.sizeDelta        = new Vector2(320f, 68f);
-                ammoText.alignment  = TextAlignmentOptions.Right;
+                rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0f);
+                rt.anchoredPosition = new Vector2(0f, 88f);
+                rt.sizeDelta        = new Vector2(270f, 64f);
+                ammoText.alignment  = TextAlignmentOptions.Center;
             }
             // ── Grenade counter (just above ammo) ──────────────────────────
             ApplyHUDStyle(grenadeCountText, 26f, new Color(0.55f, 1f, 0.40f));
             if (grenadeCountText != null)
             {
                 var rt = grenadeCountText.rectTransform;
-                rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(1f, 0f);
-                rt.anchoredPosition = new Vector2(-24f, 148f);
-                rt.sizeDelta        = new Vector2(200f, 36f);
-                grenadeCountText.alignment = TextAlignmentOptions.Right;
+                rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0f);
+                rt.anchoredPosition = new Vector2(180f, 124f);
+                rt.sizeDelta        = new Vector2(140f, 36f);
+                grenadeCountText.alignment = TextAlignmentOptions.Left;
             }
             ApplyHUDStyle(weaponNameText, 16f, new Color(0.55f, 0.85f, 1f));
             if (weaponNameText != null)
             {
                 var rt = weaponNameText.rectTransform;
-                rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(1f, 0f);
-                rt.anchoredPosition = new Vector2(-24f, 44f);
-                rt.sizeDelta        = new Vector2(320f, 28f);
-                weaponNameText.alignment = TextAlignmentOptions.Right;
+                rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0f);
+                rt.anchoredPosition = new Vector2(0f, 56f);
+                rt.sizeDelta        = new Vector2(270f, 28f);
+                weaponNameText.alignment = TextAlignmentOptions.Center;
             }
 
             // ── Timer (top-center, large) ─────────────────────────────────────
@@ -1029,6 +1112,91 @@ namespace FreeWorld.Managers
                 rt.anchoredPosition = new Vector2(20f, 38f);
                 rt.sizeDelta        = new Vector2(260f, 14f);
             }
+
+            // ── Survival vitals (stamina / hunger / thirst) ───────────────────
+            _staminaBarUI = BuildVitalsBar("STA", new Color(0.20f, 0.90f, 0.85f), 178f);
+            _hungerBarUI  = BuildVitalsBar("HNG", new Color(0.95f, 0.65f, 0.15f), 158f);
+            _thirstBarUI  = BuildVitalsBar("THR", new Color(0.25f, 0.65f, 1.00f), 138f);
+        }
+
+        // Builds a thin labelled bar anchored to the bottom-left of the canvas.
+        // Layout: [abbrev] [background/fill] [value%]
+        private VitalsBarUI BuildVitalsBar(string abbreviation, Color fillColor, float yOffset)
+        {
+            Canvas canvas = GetComponent<Canvas>() ?? FindObjectOfType<Canvas>();
+            if (canvas == null) return default;
+
+            const float barW   = 140f;
+            const float barH   = 10f;
+            const float labelW = 36f;
+            const float valW   = 58f;
+            const float startX = 20f;
+            const float pad    = 4f;
+            // inner fill width = barW minus 2px border on each side
+            float innerW = barW - 2f;
+
+            // ── Abbreviation label (left) ─────────────────────────────────────
+            var labelGO  = new GameObject($"VBar_{abbreviation}_Abbrev");
+            labelGO.transform.SetParent(canvas.transform, false);
+            var labelTMP = labelGO.AddComponent<TextMeshProUGUI>();
+            labelTMP.text          = abbreviation;
+            labelTMP.fontSize      = 9f;
+            labelTMP.fontStyle     = FontStyles.Bold;
+            labelTMP.color         = new Color(0.85f, 0.85f, 0.85f, 0.75f);
+            labelTMP.alignment     = TextAlignmentOptions.Right;
+            labelTMP.raycastTarget = false;
+            var labelRT  = labelGO.GetComponent<RectTransform>();
+            labelRT.anchorMin = labelRT.anchorMax = labelRT.pivot = new Vector2(0f, 0f);
+            labelRT.anchoredPosition = new Vector2(startX, yOffset - 1f);
+            labelRT.sizeDelta        = new Vector2(labelW, barH + 2f);
+
+            // ── Background ────────────────────────────────────────────────────
+            var bgGO  = new GameObject($"VBar_{abbreviation}_BG");
+            bgGO.transform.SetParent(canvas.transform, false);
+            var bgImg  = bgGO.AddComponent<UnityEngine.UI.Image>();
+            bgImg.color         = new Color(0f, 0f, 0f, 0.55f);
+            bgImg.raycastTarget = false;
+            var bgRT   = bgGO.GetComponent<RectTransform>();
+            bgRT.anchorMin = bgRT.anchorMax = bgRT.pivot = new Vector2(0f, 0f);
+            bgRT.anchoredPosition = new Vector2(startX + labelW + pad, yOffset);
+            bgRT.sizeDelta        = new Vector2(barW, barH);
+
+            // ── Fill — left-anchored, width driven by sizeDelta.x ─────────────
+            var fillGO  = new GameObject($"VBar_{abbreviation}_Fill");
+            fillGO.transform.SetParent(bgGO.transform, false);
+            var fillImg = fillGO.AddComponent<UnityEngine.UI.Image>();
+            fillImg.color         = fillColor;
+            fillImg.raycastTarget = false;
+            var fillRT  = fillGO.GetComponent<RectTransform>();
+            fillRT.pivot          = new Vector2(0f, 0.5f);
+            fillRT.anchorMin      = new Vector2(0f, 0f);
+            fillRT.anchorMax      = new Vector2(0f, 1f);   // anchored to left edge, height stretches
+            fillRT.offsetMin      = new Vector2(1f, 1f);
+            fillRT.offsetMax      = new Vector2(0f, -1f);  // height shrunk 2px by offsets
+            fillRT.sizeDelta      = new Vector2(innerW, 0f);  // full at start
+
+            // ── Value label (right of bar) ────────────────────────────────────
+            var valGO  = new GameObject($"VBar_{abbreviation}_Value");
+            valGO.transform.SetParent(canvas.transform, false);
+            var valTMP = valGO.AddComponent<TextMeshProUGUI>();
+            valTMP.text          = "100.0%";
+            valTMP.fontSize      = 9f;
+            valTMP.fontStyle     = FontStyles.Bold;
+            valTMP.color         = new Color(0.90f, 0.90f, 0.90f, 0.90f);
+            valTMP.alignment     = TextAlignmentOptions.Left;
+            valTMP.raycastTarget = false;
+            var valRT  = valGO.GetComponent<RectTransform>();
+            valRT.anchorMin = valRT.anchorMax = valRT.pivot = new Vector2(0f, 0f);
+            valRT.anchoredPosition = new Vector2(startX + labelW + pad + barW + pad, yOffset - 1f);
+            valRT.sizeDelta        = new Vector2(valW, barH + 2f);
+
+            return new VitalsBarUI
+            {
+                fill        = fillRT,
+                abbrevLabel = labelTMP,
+                valueLabel  = valTMP,
+                innerWidth  = innerW
+            };
         }
 
         private void ApplyHUDStyle(TextMeshProUGUI t, float fontSize, Color color)
