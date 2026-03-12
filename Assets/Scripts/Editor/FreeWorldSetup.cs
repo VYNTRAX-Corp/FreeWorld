@@ -190,6 +190,51 @@ namespace FreeWorld.Editor
                 mainCam.orthographic    = true;
             }
 
+            // ensure 'Preview' layer exists
+            SerializedObject tagManager = new SerializedObject(AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/TagManager.asset")[0]);
+            SerializedProperty layersProp = tagManager.FindProperty("layers");
+            bool found = false;
+            for (int i = 8; i < layersProp.arraySize; i++)
+            {
+                var layer = layersProp.GetArrayElementAtIndex(i);
+                if (layer.stringValue == "Preview") { found = true; break; }
+            }
+            if (!found)
+            {
+                for (int i = 8; i < layersProp.arraySize; i++)
+                {
+                    var layer = layersProp.GetArrayElementAtIndex(i);
+                    if (string.IsNullOrEmpty(layer.stringValue))
+                    {
+                        layer.stringValue = "Preview";
+                        tagManager.ApplyModifiedProperties();
+                        Debug.Log("Added Preview layer at index " + i);
+                        break;
+                    }
+                }
+            }
+            // ensure necessary tags exist
+            string[] requiredTags = new[] { "Skin", "Clothing", "Face" };
+            var tagProp = tagManager.FindProperty("tags");
+            foreach (var t in requiredTags)
+            {
+                bool tagFound = false;
+                for (int j = 0; j < tagProp.arraySize; j++)
+                {
+                    if (tagProp.GetArrayElementAtIndex(j).stringValue == t)
+                    {
+                        tagFound = true;
+                        break;
+                    }
+                }
+                if (!tagFound)
+                {
+                    tagProp.InsertArrayElementAtIndex(tagProp.arraySize);
+                    tagProp.GetArrayElementAtIndex(tagProp.arraySize-1).stringValue = t;
+                    Debug.Log("Added tag: " + t);
+                }
+            }
+            tagManager.ApplyModifiedProperties();
             // Canvas
             GameObject cv      = new GameObject("MainMenuCanvas");
             var canvas         = cv.AddComponent<Canvas>();
@@ -245,6 +290,28 @@ namespace FreeWorld.Editor
             var settingsBtn = BuildMenuButton(mainPanel.transform, "SETTINGS", new Color(0.15f, 0.15f, 0.22f));
             var creditsBtn  = BuildMenuButton(mainPanel.transform, "CREDITS",  new Color(0.15f, 0.15f, 0.22f));
             var quitBtn     = BuildMenuButton(mainPanel.transform, "QUIT",     new Color(0.15f, 0.15f, 0.22f));
+            
+            // create customize button as child of mainPanel but ignore the vertical layout
+            var customizeBtn = BuildMenuButton(mainPanel.transform, "CUSTOMIZE", new Color(0.15f, 0.15f, 0.22f));
+            var cbRT = (RectTransform)customizeBtn.transform;
+            cbRT.SetParent(mainPanel.transform, false);
+            // put customize immediately after play button
+            customizeBtn.transform.SetSiblingIndex(1);
+            // disable layout influence and give fixed size
+            var cbLayout = customizeBtn.gameObject.AddComponent<UnityEngine.UI.LayoutElement>();
+            cbLayout.preferredHeight = 60f;
+            cbLayout.preferredWidth = 320f;
+            cbLayout.ignoreLayout = true;
+            // ensure label doesn't wrap
+            var cbTMP = customizeBtn.GetComponentInChildren<TMPro.TextMeshProUGUI>();
+            if (cbTMP != null)
+            {
+                cbTMP.enableWordWrapping = false;
+                cbTMP.rectTransform.sizeDelta = new Vector2(320f, 60f);
+                cbTMP.alignment = TMPro.TextAlignmentOptions.Center;
+            }
+            // nudge down slightly below other buttons manually by adjusting position relative to panel height
+            cbRT.anchoredPosition += new Vector2(0f, -mpRT.sizeDelta.y/2f - 35f); // half panel height + small gap
 
             // Settings panel (hidden by default)
             var settingsPanel = BuildSettingsPanel(cv.transform);
@@ -257,6 +324,76 @@ namespace FreeWorld.Editor
             // Cyberpunk loading panel (hidden by default)
             var loadingPanel = BuildLoadingPanel(cv.transform);
             loadingPanel.SetActive(false);
+
+            // Customization panel (hidden by default, built alongside menu)
+            var customPanel = new GameObject("CharacterCustomizationPanel");
+            customPanel.transform.SetParent(cv.transform, false);
+            var cpImg = customPanel.AddComponent<UnityEngine.UI.Image>();
+            cpImg.color = new Color(0.12f, 0.12f, 0.18f, 0.97f);
+            var cpRT = (RectTransform)customPanel.transform;
+            cpRT.anchorMin = new Vector2(0.5f, 0.5f);
+            cpRT.anchorMax = new Vector2(0.5f, 0.5f);
+            cpRT.pivot = new Vector2(0.5f, 0.5f);
+            cpRT.anchoredPosition = Vector2.zero;
+            cpRT.sizeDelta = new Vector2(400f, 220f);
+            // add vertical layout so buttons stack
+            var cpLayout = customPanel.AddComponent<UnityEngine.UI.VerticalLayoutGroup>();
+            cpLayout.spacing = 10f;
+            cpLayout.childControlWidth = cpLayout.childControlHeight = true;
+            customPanel.AddComponent<UnityEngine.UI.ContentSizeFitter>().verticalFit =
+                UnityEngine.UI.ContentSizeFitter.FitMode.PreferredSize;
+            customPanel.SetActive(false);
+
+            // build a simple procedural preview model in world space (not under canvas)
+            var previewRoot = new GameObject("PreviewBody");
+            previewRoot.transform.position = new Vector3(0f, 1f, -2f); // closer to camera
+            previewRoot.transform.localScale = Vector3.one * 1.2f; // enlarge preview
+            // assign a special layer for preview objects
+            int previewLayer = LayerMask.NameToLayer("Preview");
+            if (previewLayer == -1) previewLayer = 8; // fallback to layer 8
+            previewRoot.layer = previewLayer;
+            // recursive layer set helper
+            void SetLayerRecursively(Transform t, int layer) { t.gameObject.layer = layer; foreach(Transform c in t) SetLayerRecursively(c, layer); }
+            // clothing initial color matches clothingPreviewColors[0]
+            var parts = FreeWorld.Utilities.EnemyHumanoidBuilder.Build(previewRoot.transform, Color.gray);
+            SetLayerRecursively(previewRoot.transform, previewLayer);
+            var previewAnim = previewRoot.AddComponent<FreeWorld.Enemy.EnemyProceduralAnimator>();
+            previewAnim.Init(parts);
+            
+            // create raw image child of panel (ignore layout) as placeholder for preview
+            var rawGO = new GameObject("PreviewImage");
+            rawGO.transform.SetParent(customPanel.transform, false);
+            var rawImg = rawGO.AddComponent<UnityEngine.UI.RawImage>();
+            var rawRT = (RectTransform)rawGO.transform;
+            rawRT.sizeDelta = new Vector2(600f,600f);
+            rawRT.anchoredPosition = new Vector2(0f, cpRT.sizeDelta.y/2f + 300f); // move way higher
+            // place behind panel in hierarchy so buttons render on top
+            rawGO.transform.SetSiblingIndex( rawGO.transform.GetSiblingIndex() - 1 );
+            var rawLayout = rawGO.AddComponent<UnityEngine.UI.LayoutElement>();
+            rawLayout.ignoreLayout = true;
+
+            // create buttons
+            var skinBtn2     = BuildMenuButton(customPanel.transform, "SKIN",     new Color(0.15f, 0.15f, 0.22f));
+            var clothingBtn2 = BuildMenuButton(customPanel.transform, "CLOTHING", new Color(0.15f, 0.15f, 0.22f));
+            var faceBtn2     = BuildMenuButton(customPanel.transform, "FACE",     new Color(0.15f, 0.15f, 0.22f));
+            var backBtn2     = BuildMenuButton(customPanel.transform, "BACK",     new Color(0.15f, 0.15f, 0.22f));
+
+            // add scripts to panel for functionality
+            var menuCtrl = cv.AddComponent<CharacterCustomizationMenuController>();
+            menuCtrl.mainMenuPanel = mainPanel.gameObject; // hide entire panel
+            menuCtrl.customizationPanel = customPanel;
+            menuCtrl.customizeButton = customizeBtn;
+            menuCtrl.backButton = backBtn2;
+
+            var menuUI = customPanel.AddComponent<CharacterCustomizationMenuUI>();
+            menuUI.skinButton = skinBtn2;
+            menuUI.clothingButton = clothingBtn2;
+            menuUI.faceButton = faceBtn2;
+            menuUI.panelBackground = cpImg; // use panel image for preview
+            menuUI.previewRoot = previewRoot;
+            menuUI.previewImage = rawImg;
+            // initial preview update
+            menuUI.UpdatePreview();
 
             // Wire MainMenu component
             var menuComp = cv.AddComponent<MainMenu>();
@@ -327,11 +464,12 @@ namespace FreeWorld.Editor
             var tmp    = txtGO.AddComponent<TextMeshProUGUI>();
             tmp.text   = label;
             tmp.fontSize = 26f;
+            tmp.enableWordWrapping = false;
             tmp.alignment = TextAlignmentOptions.Center;
             tmp.color  = Color.white;
             var lrt      = (RectTransform)txtGO.transform;
             lrt.anchorMin = Vector2.zero; lrt.anchorMax = Vector2.one;
-            lrt.sizeDelta = Vector2.zero;
+            lrt.sizeDelta = new Vector2(320f, 60f);
 
             var le    = go.AddComponent<UnityEngine.UI.LayoutElement>();
             le.preferredHeight = 60f;
@@ -738,7 +876,7 @@ namespace FreeWorld.Editor
             // ── FPS Camera setup ──────────────────────────────────────────────
             GameObject camRoot = new GameObject("CameraRoot");
             camRoot.transform.SetParent(player.transform, false);
-            camRoot.transform.localPosition = new Vector3(0f, 0.75f, 0f);
+            camRoot.transform.localPosition = new Vector3(0f, 1.6f, 0f);
 
             var camObj = new GameObject("FPSCamera");
             camObj.transform.SetParent(camRoot.transform, false);
@@ -773,11 +911,48 @@ namespace FreeWorld.Editor
             player.AddComponent<Managers.InventoryUI>();
             player.AddComponent<WeaponManager>();
 
+            // disable the primitive capsule mesh so it doesn't appear in-game
+            var capRend = player.GetComponentInChildren<Renderer>();
+            if (capRend != null)
+                capRend.enabled = false;
+
+            // ensure customization component exists so we can assign renderers as soon as body is built
+            var ccComp = player.GetComponent<CharacterCustomization>();
+            if (ccComp == null) ccComp = player.AddComponent<CharacterCustomization>();
+
+            // add procedural humanoid body under player for visible avatar
+            var bodyRoot = new GameObject("HumanoidPreview");
+            bodyRoot.transform.SetParent(player.transform, false);
+            float bodyScale = 0.4f;
+            bodyRoot.transform.localScale = Vector3.one * bodyScale; // keep small for player
+            // move upward so feet are at y=0 after the builder's -1 offset
+            bodyRoot.transform.localPosition = new Vector3(0f, bodyScale, 0f);
+            // default clothing color grey
+            var parts = FreeWorld.Utilities.EnemyHumanoidBuilder.Build(bodyRoot.transform, Color.grey);
+            // store references on CharacterCustomization component
+            ccComp.skinRenderer = bodyRoot.GetComponentInChildren<Renderer>();
+            // find clothing renderer by tag
+            var cloth = bodyRoot.GetComponentsInChildren<Renderer>(true);
+            foreach(var r in cloth){ if(r.gameObject.CompareTag("Clothing")) { ccComp.clothingRenderer = r; break; }}
+            ccComp.proceduralBody = parts;
+            // ensure default color arrays exist so loader can apply tints
+            if (ccComp.skinTones == null || ccComp.skinTones.Length == 0)
+                ccComp.skinTones = new Color[] { Color.white, new Color(1f,0.8f,0.6f), new Color(0.6f,0.4f,0.2f), Color.black };
+            if (ccComp.clothingColors == null || ccComp.clothingColors.Length == 0)
+                ccComp.clothingColors = new Color[] { Color.blue, Color.red, Color.green, Color.gray };
+
             // Grenade throwing
             var gt   = player.AddComponent<GrenadeThrow>();
             var gtSO = new SerializedObject(gt);
             gtSO.FindProperty("throwOrigin").objectReferenceValue = camObj.transform;
             gtSO.ApplyModifiedPropertiesWithoutUndo();
+
+            // Character customization support (persists from menu)
+            var customComp = ccComp; // already added above
+            var loader = player.AddComponent<CharacterCustomizationGameLoader>();
+            var loaderSO = new SerializedObject(loader);
+            loaderSO.FindProperty("customization").objectReferenceValue = customComp;
+            loaderSO.ApplyModifiedPropertiesWithoutUndo();
 
             // ── Weapon holder ─────────────────────────────────────────────────
             GameObject weaponHolder = new GameObject("WeaponHolder");

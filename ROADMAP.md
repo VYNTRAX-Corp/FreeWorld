@@ -4,7 +4,7 @@
 
 ---
 
-## CURRENT STATE (Days 1–4)
+## CURRENT STATE (Days 1–5)
 - [x] Main menu, pause, loading screen
 - [x] Dynamic crosshair, jump, surface textures
 - [x] Procedural enemy bodies + CC0 humanoid model pipeline
@@ -14,6 +14,9 @@
 - [x] Wave spawner + kill counter + HUD
 - [x] WeaponAudioBank — real CC0 gun sounds (pistol, rifle, shotgun), zero-latency WAV
 - [x] 3D spatial audio on all enemies
+- [x] Runtime terrain collision path stabilized (TerrainCollider + fallback mesh collider)
+- [x] Runtime NavMesh baking for generated terrain hills
+- [x] Minimap + ammo/grenade HUD layout polish and overlap fixes
 
 ---
 
@@ -275,4 +278,4 @@ Players specialize. Not everyone fights.
 
 ---
 
-*Last updated: Day 4*
+*Last updated: Day 5*

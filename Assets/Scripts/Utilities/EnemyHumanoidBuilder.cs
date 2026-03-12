@@ -42,12 +42,13 @@ namespace FreeWorld.Utilities
             // ── Head ─────────────────────────────────────────────────────────
             parts.Head = MakePart("Head", body.transform, PrimitiveType.Sphere,
                 new Vector3(0f, 1.72f, 0f), new Vector3(0.36f, 0.40f, 0.36f), skinMat,
-                keepCollider: true, tag: "Head");
+                keepCollider: true);
 
             // Face marker (darker sphere overlay for rough face direction)
             MakePart("FaceMarker", parts.Head, PrimitiveType.Sphere,
                 new Vector3(0f, 0f, 0.14f), new Vector3(0.50f, 0.55f, 0.25f),
-                MakeMat(new Color(SkinColor.r - 0.12f, SkinColor.g - 0.1f, SkinColor.b - 0.1f)));
+                MakeMat(new Color(SkinColor.r - 0.12f, SkinColor.g - 0.1f, SkinColor.b - 0.1f)),
+                tag: "Face");
 
             // ── Neck ─────────────────────────────────────────────────────────
             MakePart("Neck", body.transform, PrimitiveType.Cylinder,
@@ -55,15 +56,18 @@ namespace FreeWorld.Utilities
 
             // ── Torso ─────────────────────────────────────────────────────────
             parts.Torso = MakePart("Torso", body.transform, PrimitiveType.Cube,
-                new Vector3(0f, 1.18f, 0f), new Vector3(0.54f, 0.52f, 0.26f), clothMat);
+                new Vector3(0f, 1.18f, 0f), new Vector3(0.54f, 0.52f, 0.26f), clothMat,
+                tag: "Clothing");
 
             // Belt
             MakePart("Belt", body.transform, PrimitiveType.Cube,
-                new Vector3(0f, 0.86f, 0f), new Vector3(0.50f, 0.10f, 0.24f), beltMat);
+                new Vector3(0f, 0.86f, 0f), new Vector3(0.50f, 0.10f, 0.24f), beltMat,
+                tag: "Clothing");
 
             // ── Hips ──────────────────────────────────────────────────────────
             MakePart("Hips", body.transform, PrimitiveType.Cube,
-                new Vector3(0f, 0.78f, 0f), new Vector3(0.48f, 0.18f, 0.24f), clothMat);
+                new Vector3(0f, 0.78f, 0f), new Vector3(0.48f, 0.18f, 0.24f), clothMat,
+                tag: "Clothing");
 
             // ── Left Arm ──────────────────────────────────────────────────────
             var lShoulder = new GameObject("LeftShoulder");
@@ -79,7 +83,7 @@ namespace FreeWorld.Utilities
             parts.LeftForeArm = lElbow.transform;
             MakePart("ForeArm_L", lElbow.transform, PrimitiveType.Cylinder,
                 new Vector3(0f, -0.13f, 0f), new Vector3(0.10f, 0.14f, 0.10f), skinMat);
-            MakePart("Hand_L", lElbow.transform, PrimitiveType.Sphere,
+            parts.LeftHand = MakePart("Hand_L", lElbow.transform, PrimitiveType.Sphere,
                 new Vector3(0f, -0.29f, 0f), new Vector3(0.11f, 0.11f, 0.11f), skinMat);
 
             // ── Right Arm ─────────────────────────────────────────────────────
@@ -96,7 +100,7 @@ namespace FreeWorld.Utilities
             parts.RightForeArm = rElbow.transform;
             MakePart("ForeArm_R", rElbow.transform, PrimitiveType.Cylinder,
                 new Vector3(0f, -0.13f, 0f), new Vector3(0.10f, 0.14f, 0.10f), skinMat);
-            MakePart("Hand_R", rElbow.transform, PrimitiveType.Sphere,
+            parts.RightHand = MakePart("Hand_R", rElbow.transform, PrimitiveType.Sphere,
                 new Vector3(0f, -0.29f, 0f), new Vector3(0.11f, 0.11f, 0.11f), skinMat);
 
             // ── Left Leg ──────────────────────────────────────────────────────
@@ -234,7 +238,14 @@ namespace FreeWorld.Utilities
             if (!keepCollider)
             {
                 var col = go.GetComponent<Collider>();
-                if (col != null) Object.Destroy(col);
+                if (col != null)
+                {
+#if UNITY_EDITOR
+                    Object.DestroyImmediate(col);
+#else
+                    Object.Destroy(col);
+#endif
+                }
             }
             return go.transform;
         }
@@ -262,8 +273,8 @@ namespace FreeWorld.Utilities
         public Transform Body;
         public Transform Head;
         public Transform Torso;
-        public Transform LeftUpperArm,  LeftForeArm;
-        public Transform RightUpperArm, RightForeArm;
+        public Transform LeftUpperArm,  LeftForeArm, LeftHand;
+        public Transform RightUpperArm, RightForeArm, RightHand;
         public Transform LeftUpperLeg,  LeftLowerLeg;
         public Transform RightUpperLeg, RightLowerLeg;
         public Material  ClothingMaterial;

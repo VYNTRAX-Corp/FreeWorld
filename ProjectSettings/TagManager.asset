@@ -9,6 +9,9 @@ TagManager:
   - Head
   - Ground
   - Pickup
+  - Skin
+  - Clothing
+  - Face
   layers:
   - Default
   - TransparentFX
@@ -20,7 +23,7 @@ TagManager:
   - Enemy
   - Ground
   - Pickup
-  - 
+  - Preview
   - 
   - 
   - 

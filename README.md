@@ -42,6 +42,22 @@ Assets/
 | Render Pipeline | URP (recommended for nice visuals) |
 | TextMeshPro | Install via **Window → Package Manager → TMP Essentials** |
 | AI Navigation | Install via **Window → Package Manager → AI Navigation** |
+| Terrain Physics | Install via **Window → Package Manager → Terrain Physics** |
+
+---
+
+## Day 5 Update (Latest)
+
+- Terrain collision pipeline stabilized for runtime-generated terrain:
+   - Real `TerrainCollider` path when Terrain Physics is available
+   - Fallback collider mesh path retained for safety
+- Runtime NavMesh baking on generated terrain so enemies can path across hills
+- Terrain texturing pass improved with procedural layer detail and matte tuning
+   (reduced metallic/smoothness to avoid ice-like reflections)
+- HUD layout polish:
+   - Minimap moved to bottom-right
+   - Ammo and weapon stats moved to bottom-center above weapon icons
+   - Grenade count repositioned to avoid overlap with ammo text
 
 ---
 
